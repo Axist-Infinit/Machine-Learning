@@ -1,0 +1,11 @@
+{
+  "first_four_games": 4,
+  "first_round_locked_games_with_current_lines": 28,
+  "first_round_playin_scenario_rows": 8,
+  "combined_runnable_now_rows": 32,
+  "combined_all_scenarios_rows": 40,
+  "pending_first_round_games_to_patch_after_first_four": 4,
+  "corrected_mapping_notes": [
+    "Patched odds bundle mis-resolution: raw event 'Miami (OH) RedHawks' was corrected from Miami FL to Miami OH for the First Four SMU/Miami (Ohio) game."
+  ]
+}

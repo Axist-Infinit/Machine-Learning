@@ -1,0 +1,33 @@
+Round,GameDateET,TipTimeET,Network,Region,Slot,OfficialTeamA,OfficialTeamB,TeamA,TeamB,TeamAID,TeamBID,StrongSeed,WeakSeed,PendingFromGame,NeedsPlayInWinner,EventID,MarketSpreadTeamA,MarketTotal,MarketMoneylineTeamA,MarketMoneylineTeamB,OddsBundleMatchStatus
+First Round,2026-03-19,12:15 PM,CBS,East,R1W8,Ohio State,TCU,Ohio St,TCU,1326,1395.0,W08,W09,,False,ffe3c0fdb29507477476637fcbc795cf,-2.5,146.5,-142.0,120.0,exact
+First Round,2026-03-19,12:40 PM,truTV,South,R1X4,Nebraska,Troy,Nebraska,Troy,1304,1407.0,X04,X13,,False,df39114e937cbae1271ab4267afae55d,-13.0,137.5,-1000.0,650.0,exact
+First Round,2026-03-19,1:30 PM,TNT,East,R1W6,Louisville,South Florida,Louisville,South Florida,1257,1378.0,W06,W11,,False,f7b3bd4eccbe852bda4d3446090eedad,-5.5,165.5,-225.0,185.0,exact
+First Round,2026-03-19,1:50 PM,TBS,West,R1Z5,Wisconsin,High Point,Wisconsin,High Point,1458,1219.0,Z05,Z12,,False,5ee2959a7e3a36958ec1948e2911d209,-10.0,164.5,-480.0,363.0,exact
+First Round,2026-03-19,2:50 PM,CBS,East,R1W1,Duke,Siena,Duke,Siena,1181,1373.0,W01,W16,,False,65e6158d4f85c02c5909322558981536,-29.5,136.0,-50000.0,5000.0,exact
+First Round,2026-03-19,3:15 PM,truTV,South,R1X5,Vanderbilt,McNeese,Vanderbilt,McNeese St,1435,1270.0,X05,X12,,False,9957c1ba3bbf4571f8ae879f4c5f8191,-11.5,150.5,-650.0,460.0,exact
+First Round,2026-03-19,4:05 PM,TNT,East,R1W3,Michigan State,North Dakota State,Michigan St,N Dakota St,1277,1295.0,W03,W14,,False,e1392b7328ef7749e85605ddae5ab7cf,-16.5,143.5,-1900.0,1011.0,exact
+First Round,2026-03-19,4:25 PM,TBS,West,R1Z4,Arkansas,Hawai'i,Arkansas,Hawaii,1116,1218.0,Z04,Z13,,False,f238a7dd73a634df2b455b017e2cefe6,-15.0,160.5,-1300.0,800.0,exact
+First Round,2026-03-19,6:50 PM,TNT,South,R1X6,North Carolina,VCU,North Carolina,VCU,1314,1433.0,X06,X11,,False,54f2978fe672f1d22f40fb742b4e56fc,-2.5,154.0,-140.0,116.0,exact
+First Round,2026-03-19,7:10 PM,CBS,Midwest,R1Y1,Michigan,,Michigan,,1276,,Y01,Y16,Winner of UMBC vs Howard,True,,,,,,pending_playin
+First Round,2026-03-19,7:25 PM,TBS,West,R1Z6,BYU,,BYU,,1140,,Z06,Z11,Winner of Texas vs NC State,True,,,,,,pending_playin
+First Round,2026-03-19,7:35 PM,truTV,South,R1X7,Saint Mary's,Texas A&M,St Mary's CA,Texas A&M,1388,1401.0,X07,X10,,False,237f9c30050d3f038aae1e26ccfabb66,-3.25,147.5,-161.0,136.0,exact
+First Round,2026-03-19,9:25 PM,TNT,South,R1X3,Illinois,Penn,Illinois,Penn,1228,1335.0,X03,X14,,False,f1385beee81b374402faa277ca8b6122,-24.5,150.5,-10000.0,2000.0,exact
+First Round,2026-03-19,9:45 PM,CBS,Midwest,R1Y8,Georgia,Saint Louis,Georgia,St Louis,1208,1387.0,Y08,Y09,,False,2ae3d7e84eac7c14989d08fcb2ca7d8e,-3.0,170.0,-155.0,133.0,exact
+First Round,2026-03-19,10:00 PM,TNT,West,R1Z3,Gonzaga,Kennesaw State,Gonzaga,Kennesaw,1211,1244.0,Z03,Z14,,False,f16c056da963dd1c536ef628ca9448a1,-20.5,154.5,-4000.0,1450.0,exact
+First Round,2026-03-19,10:10 PM,truTV,South,R1X2,Houston,Idaho,Houston,Idaho,1222,1225.0,X02,X15,,False,7d63441e64913cf3dbd54d3e1f511b36,-23.5,136.25,-10000.0,2000.0,exact
+First Round,2026-03-20,12:15 PM,CBS,Midwest,R1Y7,Kentucky,Santa Clara,Kentucky,Santa Clara,1246,1365.0,Y07,Y10,,False,3621f920fa4195ea7b94cad16359eec4,-3.5,160.5,-166.0,140.0,exact
+First Round,2026-03-20,12:40 PM,truTV,Midwest,R1Y5,Texas Tech,Akron,Texas Tech,Akron,1403,1103.0,Y05,Y12,,False,21efa1de79d7419ff6642b56c3bd7f4e,-7.5,156.5,-315.0,250.0,exact
+First Round,2026-03-20,1:35 PM,TNT,West,R1Z1,Arizona,Long Island University,Arizona,LIU Brooklyn,1112,1254.0,Z01,Z16,,False,3d46d5cd1d0973df199c49b59b0286d5,-31.5,151.5,-100000.0,6000.0,exact
+First Round,2026-03-20,1:50 PM,TBS,Midwest,R1Y3,Virginia,Wright State,Virginia,Wright St,1438,1460.0,Y03,Y14,,False,8cfeb3ec76f8fe79812a18838365b21b,-18.5,145.5,-2750.0,1206.0,exact
+First Round,2026-03-20,2:50 PM,CBS,Midwest,R1Y2,Iowa State,Tennessee State,Iowa St,Tennessee St,1235,1398.0,Y02,Y15,,False,ce1b7df6a9120896f02b2859be04bc9e,-25.0,149.5,-11250.0,2350.0,exact
+First Round,2026-03-20,3:15 PM,truTV,Midwest,R1Y4,Alabama,Hofstra,Alabama,Hofstra,1104,1220.0,Y04,Y13,,False,971d9d8ad2fe2607f127a619109a8cdf,-12.5,159.5,-925.0,612.5,exact
+First Round,2026-03-20,4:10 PM,TNT,West,R1Z8,Villanova,Utah State,Villanova,Utah St,1437,1429.0,Z08,Z09,,False,6396d6d59de88139cd308d04ccbd362c,2.0,147.0,115.0,-135.0,exact
+First Round,2026-03-20,4:25 PM,TBS,Midwest,R1Y6,Tennessee,,Tennessee,,1397,,Y06,Y11,Winner of Miami OH vs SMU,True,,,,,,pending_playin
+First Round,2026-03-20,6:50 PM,TNT,South,R1X8,Clemson,Iowa,Clemson,Iowa,1155,1234.0,X08,X09,,False,99561d434de6bc73f538827ccca64168,2.0,129.5,115.0,-135.0,exact
+First Round,2026-03-20,7:10 PM,CBS,East,R1W5,St. John's,UNI,St John's,Northern Iowa,1385,1320.0,W05,W12,,False,a50e57ea6aa17d46dda91f9a9d33fae8,-10.5,131.5,-600.0,446.0,exact
+First Round,2026-03-20,7:25 PM,TBS,East,R1W7,UCLA,UCF,UCLA,UCF,1417,1416.0,W07,W10,,False,73aff5152ee4b2c05eff9ae407e6d65c,-6.0,152.5,-250.0,202.0,exact
+First Round,2026-03-20,7:35 PM,truTV,West,R1Z2,Purdue,Queens,Purdue,Queens NC,1345,1474.0,Z02,Z15,,False,db3e72207fdfaed613898c7b4952610f,-25.5,163.5,-13000.0,2500.0,exact
+First Round,2026-03-20,9:25 PM,TNT,South,R1X1,Florida,,Florida,,1196,,X01,X16,Winner of Prairie View vs Lehigh,True,,,,,,pending_playin
+First Round,2026-03-20,9:45 PM,CBS,East,R1W4,Kansas,Cal Baptist,Kansas,Cal Baptist,1242,1465.0,W04,W13,,False,4ed1082ee462d367e6aef5bb3987f09f,-14.5,138.0,-1200.0,754.0,exact
+First Round,2026-03-20,10:00 PM,TBS,East,R1W2,UConn,Furman,Connecticut,Furman,1163,1202.0,W02,W15,,False,149f8ce2674cf5d5e2307fcb74cc8a71,-20.5,137.0,-5000.0,1600.0,exact
+First Round,2026-03-20,10:10 PM,truTV,West,R1Z7,Miami (Fla.),Missouri,Miami FL,Missouri,1274,1281.0,Z07,Z10,,False,e62a91878453459997f36fd803409c88,-2.0,147.5,-130.0,110.0,exact
