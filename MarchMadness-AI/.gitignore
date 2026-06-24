@@ -1,0 +1,10 @@
+# Generated data, model artifacts, downloaded datasets, caches
+workspace/
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Local tooling / editor config
+.claude/
+.DS_Store

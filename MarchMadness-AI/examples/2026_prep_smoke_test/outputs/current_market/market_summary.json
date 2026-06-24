@@ -1,0 +1,12 @@
+{
+  "season": 2026,
+  "artifact_dir": "/mnt/data/march_madness_market_console/trained_kaggle_market_model",
+  "market_source": "prep_bundle",
+  "games_scored": 32,
+  "candidate_rows": 192,
+  "recommended_bets": 78,
+  "fetch_meta": {
+    "live_rows": 0,
+    "prep_rows": 32
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "warning": "Backtest did not run. Check available seasons in your data.",
+  "market_history_rows": 0,
+  "calibration_method": "isotonic",
+  "external_team_features": {
+    "coverage": {
+      "win_loss_rows": 365,
+      "ats_rows": 365,
+      "ou_rows": 365,
+      "merged_rows": 365,
+      "seasons": [
+        2026
+      ]
+    },
+    "unresolved": {
+      "win_loss": [],
+      "ats": [],
+      "ou": []
+    }
+  },
+  "external_prior": {
+    "status": "ok",
+    "source": "neutral_regular",
+    "rows": 722,
+    "features": 88,
+    "win_accuracy": 0.7451523545706371,
+    "win_logloss": 0.5237923420973195,
+    "margin_mae": 9.24362061814985,
+    "total_mae": 14.359400284060092
+  }
+}
