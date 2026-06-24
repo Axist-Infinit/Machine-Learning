@@ -5,6 +5,17 @@ workspace/
 __pycache__/
 *.py[cod]
 
+# Packaging / test / lint tooling
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+
 # Local tooling / editor config
 .claude/
 .DS_Store
+.env

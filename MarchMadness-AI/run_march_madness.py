@@ -786,7 +786,6 @@ def estimate_historical_credit_cost(markets: str, regions: str, calls: int) -> i
     return int(calls * 10 * market_count * region_count)
 
 
-
 def validate_bundle_runtime_compatibility(artifact_dir: Path) -> tuple[bool, str]:
     bundle_path = Path(artifact_dir) / "model_bundle.joblib"
     if not bundle_path.exists():
@@ -1277,7 +1276,6 @@ def build_backtest_side_breakdown(game_report: pd.DataFrame) -> dict[str, pd.Dat
     return {"moneyline": moneyline, "spread": spread, "total": total}
 
 
-
 def build_backtest_accuracy_table(summary: dict[str, Any]) -> pd.DataFrame:
     rows = [
         {
@@ -1748,99 +1746,6 @@ def official_tournament_metadata(paths: AppPaths) -> pd.DataFrame:
     return meta
 
 
-def prepare_current_market_inputs(
-    paths: AppPaths,
-    settings: dict[str, Any],
-    market_source: str,
-    api_key: str | None = None,
-    use_cache: bool = True,
-    refresh_cache: bool = False,
-    live_cache_ttl_seconds: int | None = None,
-) -> tuple[pd.DataFrame, str, dict[str, Any]]:
-    bootstrap(paths)
-    data = load_kaggle_data(paths.kaggle_data)
-    aliases = build_alias_lookup(data)
-    meta = official_tournament_metadata(paths)
-    pair_whitelist = set(meta["PairKey"].tolist())
-
-    prep_raw = prep_raw_market_rows(paths).copy()
-    prep_raw["PairKey"] = prep_raw.apply(lambda r: pair_key(r["TeamAID"], r["TeamBID"]), axis=1)
-    prep_raw = prep_raw.loc[prep_raw["PairKey"].isin(pair_whitelist)].copy()
-
-    if market_source == "prep":
-        return prep_raw.drop(columns=["PairKey"]), "prep_bundle", {"live_rows": 0, "prep_rows": int(len(prep_raw))}
-
-    live_rows = pd.DataFrame()
-    source_label = market_source
-    fetch_meta: dict[str, Any] = {"live_rows": 0, "prep_rows": int(len(prep_raw))}
-    if market_source in {"live", "hybrid"}:
-        resolved_api_key = read_api_key(settings, api_key)
-        flat_live, live_meta = fetch_live_odds(
-            api_key=resolved_api_key,
-            sport=str(settings.get("sport", "basketball_ncaab")),
-            regions=str(settings.get("regions", "us")),
-            markets=str(settings.get("markets", "h2h,spreads,totals")),
-            cache_dir=paths.api_cache,
-            use_cache=use_cache,
-            refresh_cache=refresh_cache,
-            max_age_seconds=live_cache_ttl_seconds,
-            timeout=int(settings.get("request_timeout_seconds", 60)),
-            max_retries=int(settings.get("request_max_retries", 4)),
-            retry_backoff_seconds=float(settings.get("request_retry_backoff_seconds", 3.0)),
-        )
-        resolved_live, unresolved = safe_resolve_market_team_ids(flat_live, aliases, season=2026)
-        resolved_live = resolved_live.loc[resolved_live["TeamAID"].notna() & resolved_live["TeamBID"].notna()].copy()
-        resolved_live["TeamAID"] = resolved_live["TeamAID"].astype(int)
-        resolved_live["TeamBID"] = resolved_live["TeamBID"].astype(int)
-        resolved_live["PairKey"] = resolved_live.apply(lambda r: pair_key(r["TeamAID"], r["TeamBID"]), axis=1)
-        live_rows = resolved_live.loc[resolved_live["PairKey"].isin(pair_whitelist)].copy()
-        fetch_meta = {
-            **live_meta,
-            "live_rows": int(len(live_rows)),
-            "prep_rows": int(len(prep_raw)),
-            "unresolved_names": unresolved,
-        }
-
-    if market_source == "live":
-        if live_rows.empty:
-            raise RuntimeError("No live tournament rows matched the official current bracket schedule.")
-        return live_rows.drop(columns=["PairKey"]), "live", fetch_meta
-
-    # hybrid
-    live_pairs = set(live_rows["PairKey"].tolist()) if not live_rows.empty else set()
-    prep_missing = prep_raw.loc[~prep_raw["PairKey"].isin(live_pairs)].copy()
-    combined = pd.concat([live_rows, prep_missing], ignore_index=True)
-    source_bits = []
-    if not live_rows.empty:
-        source_bits.append("live")
-    if not prep_missing.empty:
-        source_bits.append("prep_fallback")
-    return combined.drop(columns=["PairKey"]), "+".join(source_bits) if source_bits else "prep_bundle", fetch_meta
-
-
-def enrich_current_predictions_with_metadata(
-    predictions: pd.DataFrame,
-    candidates: pd.DataFrame,
-    paths: AppPaths,
-    team_names: dict[int, str],
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    meta = official_tournament_metadata(paths)[["Round", "GameDateET", "TipTimeET", "Network", "Region", "PairKey"]].copy()
-    pred = predictions.copy()
-    pred["PairKey"] = pred.apply(lambda r: pair_key(r["TeamAID"], r["TeamBID"]), axis=1)
-    pred = pred.merge(meta, on="PairKey", how="left")
-    pred["TeamAName"] = pred["TeamAID"].map(team_names)
-    pred["TeamBName"] = pred["TeamBID"].map(team_names)
-    pred["PredWinnerTeamName"] = pred["PredWinnerTeamID"].map(team_names)
-
-    cand = candidates.copy()
-    if not cand.empty:
-        cand["PairKey"] = cand.apply(lambda r: pair_key(r["TeamAID"], r["TeamBID"]), axis=1)
-        cand = cand.merge(meta, on="PairKey", how="left")
-        cand["TeamAName"] = cand["TeamAID"].map(team_names).fillna(cand["TeamAName"])
-        cand["TeamBName"] = cand["TeamBID"].map(team_names).fillna(cand["TeamBName"])
-    return pred.drop(columns=["PairKey"]), cand.drop(columns=["PairKey"], errors="ignore")
-
-
 def invoke_action(label: str, func, *func_args) -> int:
     try:
         return int(func(*func_args))
@@ -1897,7 +1802,6 @@ def prompt_float(label: str, default: float, minimum: float | None = None) -> fl
             log(f"Value must be >= {minimum}")
             continue
         return value
-
 
 
 def normalize_optimize_target(value: Any) -> str:
@@ -2115,205 +2019,6 @@ def command_pull_odds(args: argparse.Namespace, paths: AppPaths, settings: dict[
     log(f"Saved closing consensus to: {consensus_path}")
     if failures:
         log(f"Historical pull completed with {failures} failed snapshot request(s). Re-run later to fill gaps; cache/raw files preserve completed work.")
-    return 0
-
-
-def _legacy_command_backtest(args: argparse.Namespace, paths: AppPaths, settings: dict[str, Any]) -> int:
-    bootstrap(paths)
-    year = int(args.year)
-    scope = str(args.scope)
-    output_dir = Path(args.output_dir) if args.output_dir else (paths.outputs / "backtests" / f"{year}_{scope}")
-    ensure_dir(output_dir)
-
-    raw_odds_path = Path(args.raw_odds_csv) if args.raw_odds_csv else (paths.outputs / "odds_history" / f"{year}_{scope}" / "raw_snapshots.csv")
-    if not raw_odds_path.exists():
-        if not args.auto_fetch:
-            raise FileNotFoundError(
-                f"Historical raw odds file not found: {raw_odds_path}. Re-run with --auto-fetch or pass --raw-odds-csv."
-            )
-        pull_args = argparse.Namespace(
-            year=year,
-            scope=scope,
-            interval_hours=args.interval_hours or int(settings.get("default_historical_interval_hours", 6)),
-            sport=args.sport or settings.get("sport", "basketball_ncaab"),
-            regions=args.regions or settings.get("regions", "us"),
-            markets=args.markets or settings.get("markets", "h2h,spreads,totals"),
-            output_dir=str(paths.outputs / "odds_history" / f"{year}_{scope}"),
-            force=False,
-            api_key=args.api_key,
-            bookmakers=args.bookmakers,
-            start_date=args.start_date,
-            end_date=args.end_date,
-            commence_time_from=None,
-            commence_time_to=None,
-            no_cache=getattr(args, "no_cache", False),
-            refresh_cache=getattr(args, "refresh_cache", False),
-            timeout_seconds=getattr(args, "timeout_seconds", None),
-            max_retries=getattr(args, "max_retries", None),
-            retry_backoff_seconds=getattr(args, "retry_backoff_seconds", None),
-            fail_fast=getattr(args, "fail_fast", False),
-        )
-        command_pull_odds(pull_args, paths, settings)
-
-    raw_snapshots = pd.read_csv(raw_odds_path, low_memory=False)
-    if raw_snapshots.empty:
-        raise RuntimeError(f"No rows in historical odds file: {raw_odds_path}")
-
-    data = load_kaggle_data(paths.kaggle_data)
-    aliases = build_alias_lookup(data)
-    raw_snapshots, unresolved_names = safe_resolve_market_team_ids(raw_snapshots, aliases, season=year)
-
-    # Repair stale raw files from earlier runs now that the resolver can handle bookmaker
-    # names like "Duke Blue Devils" or "Houston Cougars".
-    raw_snapshots.to_csv(raw_odds_path, index=False)
-
-    unresolved_rows_path = output_dir / "unresolved_market_rows.csv"
-    unresolved_count = write_unresolved_market_rows(raw_snapshots, unresolved_rows_path)
-    if unresolved_count:
-        preview = ", ".join(unresolved_names[:10])
-        more = "" if len(unresolved_names) <= 10 else f" (+{len(unresolved_names) - 10} more)"
-        log(
-            f"Found {unresolved_count} unresolved historical market row(s). "
-            f"They will be excluded from consensus matching. See {unresolved_rows_path}. "
-            f"Unresolved names: {preview}{more}"
-        )
-
-    artifact_dir = train_model_if_needed(paths, target_season=year, force_retrain=bool(args.force_retrain))
-
-    closing_raw = select_latest_pregame_snapshot(
-        raw_snapshots,
-        pregame_buffer_minutes=int(settings.get("historical_pregame_buffer_minutes", 5)),
-    )
-    consensus = build_consensus_matchups(closing_raw)
-    actual_games = build_actual_games(paths, year, scope)
-    matched_consensus, unmatched = match_market_events_to_actuals(consensus, actual_games)
-    matched_event_ids = set(matched_consensus["EventID"].astype(str).tolist()) if not matched_consensus.empty else set()
-    matched_raw = closing_raw.loc[closing_raw["EventID"].astype(str).isin(matched_event_ids)].copy()
-
-    data = load_kaggle_data(paths.kaggle_data)
-    names = team_name_map(data.teams)
-    predictions = prepare_backtest_predictions(matched_consensus, artifact_dir)
-    game_report = compute_backtest_game_report(matched_consensus, predictions, names)
-    round_summary = build_backtest_round_summary(game_report)
-    side_breakdown = build_backtest_side_breakdown(game_report)
-    summary = build_backtest_summary(
-        year=year,
-        scope=scope,
-        artifact_dir=artifact_dir,
-        raw_odds_path=raw_odds_path,
-        consensus=consensus,
-        matched_consensus=matched_consensus,
-        unmatched=unmatched,
-        game_report=game_report,
-    )
-
-    summary_path = output_dir / "backtest_summary.json"
-    matched_consensus.to_csv(output_dir / "matched_market_consensus.csv", index=False)
-    matched_raw.to_csv(output_dir / "matched_market_book_rows.csv", index=False)
-    predictions.to_csv(output_dir / "backtest_predictions.csv", index=False)
-    game_report.to_csv(output_dir / "backtest_game_report.csv", index=False)
-    round_summary.to_csv(output_dir / "backtest_round_summary.csv", index=False)
-    for key, frame in side_breakdown.items():
-        frame.to_csv(output_dir / f"backtest_{key}_breakdown.csv", index=False)
-    summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    markdown = build_backtest_markdown(summary, game_report, round_summary, side_breakdown)
-    write_text(output_dir / "backtest_report.md", markdown)
-
-    log(json.dumps(summary, indent=2))
-    log(f"Saved backtest outputs to: {output_dir}")
-    return 0
-
-
-def _legacy_command_predict_current(args: argparse.Namespace, paths: AppPaths, settings: dict[str, Any]) -> int:
-    bootstrap(paths)
-    season = int(args.season)
-    artifact_dir = train_model_if_needed(paths, target_season=season, force_retrain=bool(args.force_retrain))
-    market_source = str(args.market_source or settings.get("default_market_source", "hybrid"))
-    use_cache = not bool(getattr(args, "no_cache", False))
-    refresh_cache = bool(getattr(args, "refresh_cache", False))
-    raw_live_cache_ttl = getattr(args, "live_cache_ttl_minutes", None)
-    if raw_live_cache_ttl is None:
-        raw_live_cache_ttl = settings.get("live_cache_ttl_minutes", 10)
-    live_cache_ttl_minutes = int(raw_live_cache_ttl)
-    raw_market, source_label, fetch_meta = prepare_current_market_inputs(
-        paths=paths,
-        settings=settings,
-        market_source=market_source,
-        api_key=args.api_key,
-        use_cache=use_cache,
-        refresh_cache=refresh_cache,
-        live_cache_ttl_seconds=max(0, live_cache_ttl_minutes) * 60,
-    )
-    if raw_market.empty:
-        raise RuntimeError("No current tournament market rows found.")
-
-    consensus = build_consensus_matchups(raw_market)
-    bundle = load_bundle(artifact_dir)
-    team_features = load_team_features_from_artifacts(artifact_dir)
-    predictions = predict_matchups(consensus, team_features, bundle)
-    candidates = price_bookmaker_sides(
-        flat_odds_resolved=raw_market,
-        event_predictions=predictions,
-        bankroll=float(args.bankroll or settings.get("bankroll", 5000.0)),
-        fractional_kelly=float(args.fractional_kelly or settings.get("fractional_kelly", 0.25)),
-        max_stake_fraction=float(args.max_stake_fraction or settings.get("max_stake_fraction", 0.02)),
-        min_moneyline_ev=float(args.min_moneyline_ev),
-        min_spread_ev=float(args.min_spread_ev),
-        min_total_ev=float(args.min_total_ev),
-        min_edge_prob=float(args.min_edge_prob),
-        min_market_books=int(args.min_market_books),
-    )
-
-    data = load_kaggle_data(paths.kaggle_data)
-    names = team_name_map(data.teams)
-    predictions, candidates = enrich_current_predictions_with_metadata(predictions, candidates, paths, names)
-
-    output_dir = Path(args.output_dir) if args.output_dir else (paths.outputs / "current_market" / str(season))
-    ensure_dir(output_dir)
-    summary = {
-        "season": season,
-        "artifact_dir": str(artifact_dir),
-        "market_source": source_label,
-        "games_scored": int(len(predictions)),
-        "candidate_rows": int(len(candidates)),
-        "recommended_bets": int(candidates["IsRecommended"].sum()) if not candidates.empty else 0,
-        "cache_enabled": use_cache,
-        "refresh_cache": refresh_cache,
-        "live_cache_ttl_minutes": live_cache_ttl_minutes,
-        "fetch_meta": fetch_meta,
-    }
-    (output_dir / "market_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    raw_market.to_csv(output_dir / "raw_market_rows.csv", index=False)
-    consensus.to_csv(output_dir / "market_consensus.csv", index=False)
-    predictions.to_csv(output_dir / "market_predictions.csv", index=False)
-    candidates.to_csv(output_dir / "market_candidate_sides.csv", index=False)
-    markdown = build_current_market_markdown(summary, predictions, candidates)
-    write_text(output_dir / "market_report.md", markdown)
-
-    log(json.dumps(summary, indent=2))
-    log(f"Saved current market outputs to: {output_dir}")
-    return 0
-
-
-def _legacy_command_predict_bracket(args: argparse.Namespace, paths: AppPaths, settings: dict[str, Any]) -> int:
-    bootstrap(paths)
-    season = int(args.season)
-    artifact_dir = train_model_if_needed(paths, target_season=season, force_retrain=bool(args.force_retrain))
-    data = load_kaggle_data(paths.kaggle_data)
-    team_features = load_team_features_from_artifacts(artifact_dir)
-    bundle = load_bundle(artifact_dir)
-    bracket = simulate_bracket(season, data.seeds, data.slots, team_features, bundle)
-    names = team_name_map(data.teams)
-    bracket = bracket.copy()
-    bracket["TeamAName"] = bracket["TeamAID"].map(names)
-    bracket["TeamBName"] = bracket["TeamBID"].map(names)
-    bracket["PredWinnerTeamName"] = bracket["PredWinnerTeamID"].map(names)
-
-    output_dir = Path(args.output_dir) if args.output_dir else (paths.outputs / "brackets" / str(season))
-    ensure_dir(output_dir)
-    bracket.to_csv(output_dir / f"predicted_bracket_{season}.csv", index=False)
-    write_text(output_dir / f"predicted_bracket_{season}.md", build_bracket_markdown(season, bracket))
-    log(f"Saved bracket simulation to: {output_dir}")
     return 0
 
 
@@ -2747,7 +2452,6 @@ def observed_results_to_actual_games(paths: AppPaths, season: int, observed_resu
     return out[cols].sort_values(["DayNum", "WTeamID", "LTeamID"]).reset_index(drop=True)
 
 
-
 def build_actual_games_with_observed(
     paths: AppPaths,
     data,
@@ -2766,7 +2470,6 @@ def build_actual_games_with_observed(
     combined["__GameKey"] = combined["PairKey"].astype(str) + "|" + combined["DayNum"].astype(str) + "|" + combined["CompetitionPhase"].astype(str)
     combined = combined.sort_values(["__GameKey", "CompetitionPhase"]).drop_duplicates(subset=["__GameKey"], keep="last")
     return combined.drop(columns=["__GameKey"], errors="ignore").reset_index(drop=True)
-
 
 
 def market_history_frame_columns() -> list[str]:
@@ -2795,7 +2498,6 @@ def market_history_frame_columns() -> list[str]:
         "RoundLabel",
         "PairKey",
     ]
-
 
 
 def standardize_market_history_frame(frame: pd.DataFrame) -> pd.DataFrame:
@@ -2850,7 +2552,6 @@ def standardize_market_history_frame(frame: pd.DataFrame) -> pd.DataFrame:
         if col in work.columns:
             work[col] = pd.to_numeric(work[col], errors="coerce")
     return work[[col for col in cols if col in work.columns]].copy()
-
 
 
 def load_same_season_market_training_history(
@@ -2924,8 +2625,6 @@ def load_same_season_market_training_history(
     return combined.drop(columns=["__GameKey", "__BookSort", "__CommenceSort"], errors="ignore").reset_index(drop=True)
 
 
-
-
 def snapshot_training_seasons(target_season: int, settings: dict[str, Any]) -> list[int]:
     lookback = max(0, int(settings.get("snapshot_training_prior_seasons", 1)))
     min_season = int(settings.get("snapshot_training_min_season", 2003))
@@ -2938,7 +2637,6 @@ def direct_market_training_seasons(target_season: int, settings: dict[str, Any])
     min_season = int(settings.get("snapshot_direct_market_history_min_season", 2021))
     start = max(min_season, int(target_season) - lookback)
     return list(range(start, int(target_season) + 1))
-
 
 
 def load_multiseason_market_training_history(
@@ -3011,7 +2709,6 @@ def load_multiseason_market_training_history(
         "rows_by_season": rows_by_season,
     }
     return combined, meta
-
 
 
 def fetch_recent_scores(
@@ -3251,8 +2948,6 @@ def combine_simple_results_for_snapshot(
     return training_results, tournament_results
 
 
-
-
 def combine_windowed_results_for_snapshot(
     data,
     paths: AppPaths,
@@ -3357,7 +3052,6 @@ def combine_simple_results_for_direct_market_training(
     return combined
 
 
-
 def build_multiseason_direct_team_features(
     data,
     target_season: int,
@@ -3418,7 +3112,6 @@ def build_multiseason_direct_team_features(
         team_features = merge_external_team_features(team_features, external_team_features)
 
     return team_features.sort_values(["Season", "TeamID"]).reset_index(drop=True)
-
 
 
 def build_detailed_results_for_snapshot(
@@ -3538,7 +3231,6 @@ def build_score_only_tournament_features(tournament_results: pd.DataFrame) -> pd
     return out[cols].sort_values(["Season", "TeamID"]).reset_index(drop=True)
 
 
-
 def build_snapshot_config(
     season: int,
     cutoff_daynum: int,
@@ -3584,7 +3276,6 @@ def build_snapshot_config(
     return config
 
 
-
 def build_snapshot_model_key(
     season: int,
     cutoff_daynum: int,
@@ -3620,7 +3311,6 @@ def build_snapshot_model_key(
     )
     digest = hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
     return f"day{int(cutoff_daynum):03d}_{digest}"
-
 
 
 def load_or_train_season_snapshot_model(
@@ -3791,7 +3481,6 @@ def load_or_train_season_snapshot_model(
     }
     snapshot_meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
     return artifact_dir, team_features, bundle, meta
-
 
 
 def build_round_snapshot_plan(matched_consensus: pd.DataFrame) -> pd.DataFrame:
