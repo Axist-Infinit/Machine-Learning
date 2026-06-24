@@ -184,3 +184,23 @@ python run_march_madness.py pull-odds --year 2025 --scope tournament
 ```
 
 Then rerun the 2025 tournament backtest. The script will prefer the local cache and raw snapshot files over new API calls.
+
+
+## Development
+
+Install the package (src-layout) with dev tooling, then run the tests:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+pytest
+```
+
+The test suite (`tests/`) covers the pure money/probability functions —
+odds conversion, expected value, Kelly sizing, payouts, bet settlement, and
+score reconciliation. CI runs `pytest` on every push/PR that touches
+`MarchMadness-AI/` (see `.github/workflows/marchmadness-ci.yml`); a non-blocking
+`ruff` lint job runs alongside it.
+
+See `REVIEW.md` for a deep-dive code/model review and the improvement roadmap.

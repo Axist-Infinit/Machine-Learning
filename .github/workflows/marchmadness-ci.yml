@@ -1,0 +1,54 @@
+name: MarchMadness-AI CI
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'MarchMadness-AI/**'
+      - '.github/workflows/marchmadness-ci.yml'
+  pull_request:
+    paths:
+      - 'MarchMadness-AI/**'
+      - '.github/workflows/marchmadness-ci.yml'
+
+defaults:
+  run:
+    working-directory: MarchMadness-AI
+
+jobs:
+  test:
+    name: tests (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+          cache-dependency-path: 'MarchMadness-AI/pyproject.toml'
+      - name: Install package + dev deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Run tests
+        run: pytest
+
+  lint:
+    # Informational only for now: the legacy monolith is not yet lint-clean,
+    # so a failure here does not block the workflow.
+    name: lint (ruff, non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install ruff
+        run: pip install ruff
+      - name: Ruff check
+        run: ruff check .
