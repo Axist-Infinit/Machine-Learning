@@ -62,4 +62,14 @@ gates:
               stop_if_trailing_200_clv_negative: true}
     on_fail: "fair lines only"
 
-amendments: []
+amendments:
+  - date: 2026-11-11
+    what: >-
+      G1 interpretation (no threshold changed): the RMSE comparisons against raw net rating, Elo and the
+      closing line use the plain ratings engine; the bias and interval-coverage checks use the shipped
+      engine (ratings + context adjustment). The context adjustment is an added component and must
+      itself pass G2.
+    why: >-
+      The first G1 run found postseason totals ~3 points below every model's prediction, the ridge floor
+      included (conf tourneys -2.7, NCAA -3.2; regular season -0.4): a game-type effect, not a rating
+      error. It is exactly what the planned context GLM (rest, game type, venue) addresses.

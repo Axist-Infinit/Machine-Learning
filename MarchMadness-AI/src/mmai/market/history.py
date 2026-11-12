@@ -73,6 +73,30 @@ def build_line_table(games: pd.DataFrame, odds: pd.DataFrame) -> pd.DataFrame:
     return g.merge(choose_lines(odds), on="event_id", how="left")
 
 
+def attach_lines(games: pd.DataFrame, lines: pd.DataFrame, resolver: TeamResolver, gender: str) -> pd.DataFrame:
+    """Closing lines for Kaggle-oriented games (``game_id, date, team_a, team_b``), matched by
+    date (±1 day) and Kaggle team pair. Returns game_id, line_margin_a (= -spread for team A),
+    line_total, line_kind."""
+    found_h, _ = resolver.resolve_many(gender, "espn", lines["home_id"])
+    found_a, _ = resolver.resolve_many(gender, "espn", lines["away_id"])
+    index: dict[tuple, tuple] = {}
+    for r in lines.dropna(subset=["spread_home"]).itertuples(index=False):
+        h, a = found_h.get(str(r.home_id)), found_a.get(str(r.away_id))
+        if h is not None and a is not None:
+            index[(str(r.date_et), frozenset((h, a)))] = (h, r.spread_home, r.total, r.line_kind)
+    out = []
+    for g in games.itertuples(index=False):
+        pair = frozenset((int(g.team_a), int(g.team_b)))
+        for shift in (0, -1, 1):
+            hit = index.get((str(g.date + timedelta(days=shift)), pair))
+            if hit is not None:
+                home, spread_home, total, kind = hit
+                spread_a = spread_home if home == int(g.team_a) else -spread_home
+                out.append((g.game_id, -spread_a, total, kind))
+                break
+    return pd.DataFrame(out, columns=["game_id", "line_margin_a", "line_total", "line_kind"])
+
+
 def compare_to_reference(lines: pd.DataFrame, ref: pd.DataFrame, resolver: TeamResolver, gender: str = "M") -> dict:
     """Check ESPN lines against a reference closing table with Kaggle ``TeamAID``/``TeamBID``,
     ``CommenceTime``, ``MarketSpreadTeamA`` and ``MarketTotal`` (e.g. the cached 2025 Odds API

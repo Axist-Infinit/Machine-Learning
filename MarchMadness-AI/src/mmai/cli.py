@@ -202,6 +202,79 @@ def cmd_log_odds(args: argparse.Namespace) -> int:
     return 0
 
 
+def _render_backtest(gender: str, cfg, gates: list[dict], pooled: pd.DataFrame, seasons_tbl: pd.DataFrame,
+                     seasons: list[int]) -> str:
+    def status(p):
+        return "n/a" if p is None else ("PASS" if p else "FAIL")
+
+    lines = [f"# Walk-forward backtest — {gender}", "",
+             (f"Seasons {seasons[0]}–{seasons[-1]} (each scored by a model fit only on earlier data). "
+              f"Config: `{cfg}`"), "", "## Gates G1 (ratings) and G2 (context adjustment) — prereg v1 + amendment 2026-11-11", "", "| check | value | threshold | result |",
+             "|---|---|---|---|"]
+    lines += [f"| {g['check']} | {g['value']} | {g['threshold']} | {status(g['passed'])} |" for g in gates]
+    lines += ["", "## Pooled metrics", "", pooled.round(4).to_markdown(index=False), "",
+              "## Engine per season (games after Jan 15)", "", seasons_tbl.round(3).to_markdown()]
+    return "\n".join(lines) + "\n"
+
+
+def cmd_backtest(args: argparse.Namespace) -> int:
+    import yaml
+
+    from mmai.data.games import kaggle_games
+    from mmai.eval import PREREG_PATH
+    from mmai.eval.walkforward import (
+        assemble,
+        gate_g1,
+        gate_g2,
+        per_season,
+        score,
+        time_travel_check,
+        walk_forward,
+    )
+    from mmai.ids.resolver import TeamResolver
+    from mmai.market.history import attach_lines
+    from mmai.model.ratings import RatingsConfig
+
+    paths = get_paths()
+    kd = KaggleData.latest(paths.kaggle_zips)
+    prereg = yaml.safe_load(PREREG_PATH.read_text())
+    dev = prereg["development"]
+    first, last = (int(x) for x in (args.seasons or "-".join(map(str, dev["walk_forward_seasons"]))).split("-"))
+    burned = set(prereg["holdout"]["one_shot"]) | set(prereg["holdout"]["partly_burned"])
+    if not args.allow_holdout and any(s in burned for s in range(first, last + 1)):
+        print(f"refusing: seasons {sorted(burned)} are holdout (see eval/prereg.yaml)", file=sys.stderr)
+        return 2
+    seasons = [s for s in range(first, last + 1) if s not in set(dev["skip_seasons"])]
+    cfg = RatingsConfig(recency=args.recency, half_life=args.half_life, ridge=args.ridge,
+                        prior_games=args.prior_games, carryover=args.carryover)
+    resolver = TeamResolver.load(crosswalk_path(paths), paths.config / "team_aliases.csv")
+    report_dir = paths.workspace / "reports"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    for g in args.gender:
+        games = kaggle_games(kd, g)
+        games = games[games["season"] <= last].reset_index(drop=True)  # never compute on later seasons
+        lt = read_parquets(paths.store / "lines" / f"gender={g}")
+        lines = attach_lines(games[games["season"] >= 2017], lt, resolver, g) if len(lt) else None
+        df = assemble(games, cfg, massey=kd.massey() if g == "M" else None, seeds=kd.seeds(g), lines=lines)
+        test, _maps = walk_forward(df, seasons)
+        tt = time_travel_check(games, cfg, season=seasons[-1], cut_day=100)
+        gates = gate_g1(test, prereg, tt) + gate_g2(test, prereg)
+        pooled, ps = score(test), per_season(test)
+        tag = args.tag or f"{cfg.recency}"
+        md = _render_backtest(g, cfg, gates, pooled, ps, seasons)
+        (report_dir / f"backtest_{g}_{tag}.md").write_text(md)
+        pooled.to_csv(report_dir / f"backtest_{g}_{tag}_pooled.csv", index=False)
+        write_parquet(test, paths.store / "backtest" / f"{g}_{tag}.parquet")
+        print(f"\n=== {g}  ({len(test)} test games; report workspace/reports/backtest_{g}_{tag}.md)")
+        for x in gates:
+            res = "n/a " if x["passed"] is None else ("PASS" if x["passed"] else "FAIL")
+            print(f"  [{res}] {x['check']}: {x['value']}  (need {x['threshold']})")
+        show = pooled[pooled["set"].isin(["after_jan15", "ncaa"])][
+            ["set", "model", "n", "margin_rmse", "margin_mae", "margin_bias", "total_rmse", "total_bias", "brier"]]
+        print(show.round(3).to_string(index=False))
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     from mmai.doctor import run_doctor
 
@@ -239,6 +312,18 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--books", nargs="*", help="bookmaker keys (<=10 count as one region)")
     s.add_argument("--budget", type=int, default=20_000, help="hard monthly credit cap")
     s.set_defaults(func=cmd_log_odds)
+
+    s = sub.add_parser("backtest", help="walk-forward backtest of the ratings engine + baselines, gate G1")
+    s.add_argument("--gender", nargs="+", default=["M", "W"], choices=["M", "W"])
+    s.add_argument("--seasons", help="e.g. 2012-2024 (default: prereg development range)")
+    s.add_argument("--recency", default="none", choices=["none", "exp", "trank"])
+    s.add_argument("--half-life", type=float, default=60.0)
+    s.add_argument("--ridge", type=float, default=2.0)
+    s.add_argument("--prior-games", type=float, default=6.0)
+    s.add_argument("--carryover", type=float, default=0.6)
+    s.add_argument("--tag", help="report name suffix")
+    s.add_argument("--allow-holdout", action="store_true", help="(don't) — only for the logged one-shot run")
+    s.set_defaults(func=cmd_backtest)
 
     s = sub.add_parser("doctor", help="preflight checks: data, calendar, IDs, keys, logger")
     s.set_defaults(func=cmd_doctor)
