@@ -1,0 +1,11 @@
+# Exact versions the pipeline is developed and tested with (Python 3.10, 2026-11-11).
+# Model artifacts record the versions they were built with; load them only under these.
+numpy==2.2.6
+pandas==2.3.1
+scipy==1.15.3
+pyarrow==25.0.0
+requests==2.32.5
+PyYAML==6.0.1
+scikit-learn==1.7.1
+xgboost==3.0.3
+pytest==9.0.3

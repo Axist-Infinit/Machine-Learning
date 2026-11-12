@@ -1,43 +1,39 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mm26-xgb"
+name = "mmai"
 version = "0.1.0"
-description = "Market-aware XGBoost models and tooling for NCAA March Madness predictions and betting analysis."
+description = "MarchMadness-AI: as-of NCAA basketball ratings, score distributions, brackets, Kaggle and betting tools"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Proprietary" }
 dependencies = [
     "numpy>=1.24",
-    "pandas>=1.5",
-    "scikit-learn>=1.3",
-    "xgboost>=3.0",
-    "joblib>=1.3",
+    "pandas>=2.0",
+    "scipy>=1.10",
+    "pyarrow>=14",
     "requests>=2.31",
+    "pyyaml>=6",
 ]
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=7.4",
-    "ruff>=0.4",
-    "mypy>=1.8",
-]
+dev = ["pytest>=7.4", "ruff>=0.4"]
+ml = ["scikit-learn>=1.3", "xgboost>=2.0"]
 
 [project.scripts]
-mm26 = "mm26_xgb.cli:main"
-
-[tool.setuptools]
-package-dir = { "" = "src" }
+mmai = "mmai.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+mmai = ["eval/prereg.yaml"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
 
 [tool.ruff]
 line-length = 120
 target-version = "py310"
+extend-exclude = ["legacy"]

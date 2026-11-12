@@ -1,0 +1,4 @@
+# Manual team-ID overrides. These win over the learned crosswalk (workspace/store/ids/team_crosswalk.csv).
+# gender: M or W; source: espn (ESPN team id) or odds_api (Odds API team name); kaggle_id: Kaggle TeamID.
+# Add a row only after checking the game log; record why in `note`.
+gender,source,key,kaggle_id,note

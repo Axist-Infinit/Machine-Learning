@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Run the mmai CLI from a checkout without installing: ./mmai doctor
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PYTHONPATH="$DIR/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m mmai "$@"

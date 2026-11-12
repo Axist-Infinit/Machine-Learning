@@ -2,7 +2,7 @@ name: MarchMadness-AI CI
 
 on:
   push:
-    branches: [master]
+    branches: [master, mmai-2027]
     paths:
       - 'MarchMadness-AI/**'
       - '.github/workflows/marchmadness-ci.yml'
@@ -29,20 +29,20 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
-          cache-dependency-path: 'MarchMadness-AI/pyproject.toml'
-      - name: Install package + dev deps
+          cache-dependency-path: 'MarchMadness-AI/requirements.lock'
+      - name: Install pinned deps + package
         run: |
           python -m pip install --upgrade pip
+          pip install -r requirements.lock
           pip install -e ".[dev]"
+      # Tests use synthetic fixtures only: Kaggle data and API keys never reach CI.
+      # legacy/ is frozen and excluded (testpaths = tests).
       - name: Run tests
         run: pytest
 
   lint:
-    # Informational only for now: the legacy monolith is not yet lint-clean,
-    # so a failure here does not block the workflow.
-    name: lint (ruff, non-blocking)
+    name: lint (ruff, src + tests)
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -51,4 +51,4 @@ jobs:
       - name: Install ruff
         run: pip install ruff
       - name: Ruff check
-        run: ruff check .
+        run: ruff check src tests

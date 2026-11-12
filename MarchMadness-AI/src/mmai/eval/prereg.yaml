@@ -1,0 +1,65 @@
+# Pre-registration v1 — written 2026-11-11, BEFORE any model tuning (see docs/PLAN_2027.md).
+# Changing a threshold after seeing results requires bumping `version` and logging why in
+# `amendments`. The harness reads this file; gates are enforced in code, not by eye.
+version: 1
+written: 2026-11-11
+
+development:
+  walk_forward_seasons: [2012, 2024]   # each season scored by a model fit only on earlier data
+  skip_seasons: [2020]                 # no NCAA tournament
+  model_selection_games: "all Division I games after Jan 15, plus all neutral-site games"
+  headline: "pooled NCAA tournaments 2012-2024"
+  statistics: "paired bootstrap by game, 95% CI, 2,000 resamples"
+  multiple_testing: "Holm across betting segments (G5)"
+
+holdout:
+  partly_burned: [2025]                # its results were examined while planning
+  one_shot: [2026]                     # run once; runner records git SHA, refuses reruns without a logged reason
+  forward_window: ["2027-01-01", "2027-03-10"]   # append-only prediction archive from 2026-12-15
+
+baselines: [seed_only_logistic, raw_net_rating, elo, massey_consensus, ridge_floor_2026_11_11, closing_line]
+
+# Reference numbers measured 2026-11-11 (ridge O/D ratings on compact scores, no ML, no recency),
+# pooled over the 13 NCAA tournaments 2012-2025: margin MAE 9.20, total MAE 13.19, Brier 0.190
+# (seed benchmark 0.198).
+ridge_floor: {margin_mae: 9.20, total_mae: 13.19, brier: 0.190}
+
+gates:
+  G1_ratings:
+    time_travel_identical: true
+    games: "after Jan 15"
+    margin_rmse_beats_raw_net_rating_by: 0.5
+    margin_rmse_beats_elo_by: 0.15
+    margin_rmse_within_closing_line: 0.8
+    per_season_abs_margin_bias_max: 0.5
+    per_season_abs_total_bias_max: 1.0
+    pooled_tourney_abs_total_bias_max: 1.5
+    interval_coverage_tolerance_pp: 3     # 50% and 80% intervals
+  G2_added_component:                     # GLM, XGBoost, Massey, travel, ...
+    ci_must_exclude_zero: true
+    min_improvement: {rmse: 0.05, brier: 0.0005}
+    max_pooled_tourney_degradation_se: 1.0
+  G3_probabilities_and_kaggle:
+    calibration_slope: [0.9, 1.1]
+    calibration_abs_intercept_max: 0.05
+    ece_max: 0.02
+    brier_better_than_seed_only: {M: 0.008, W: 0.005}
+    must_beat_ridge_floor_brier: true
+    men_max_worse_than_massey_consensus: 0.002
+    market_blend_min_gain_brier: 0.002     # measured on 2021-2024
+    holdout_2026_outside_90pct_band: "revert to ratings + Platt"
+  G4_scores_vs_market:
+    blend_rmse_max_over_closing: 0.05      # margin and total, 2021-2026
+  G5_betting:
+    segments: "{M,W} x {spread,total,moneyline}, at most 6"
+    encompassing_slope_ci_above_zero: true # regress (actual - close) on (model - close)
+    historical_roi_min: 0.02               # near-close best-book lines, 2022-2026
+    historical_min_bets: 1000
+    historical_min_positive_seasons: "3 of 5"
+    forward_clv_min_pp: 1.0                # no-vig probability points
+    forward_min_bets: 400
+    on_pass: {kelly_fraction: 0.25, max_per_bet: 0.01, max_per_day: 0.03, one_bet_per_game_per_market: true,
+              stop_if_trailing_200_clv_negative: true}
+    on_fail: "fair lines only"
+
+amendments: []

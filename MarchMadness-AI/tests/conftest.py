@@ -1,8 +1,5 @@
-"""Make the ``src/`` layout importable when running the tests in-place.
+"""Make ``src/`` importable when running ``pytest`` from the project root without installing."""
 
-This lets ``pytest`` work straight from the project root without first
-``pip install -e .``-ing the package (though that works too).
-"""
 import sys
 from pathlib import Path
 
