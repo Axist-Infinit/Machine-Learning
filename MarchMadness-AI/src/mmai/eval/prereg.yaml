@@ -73,3 +73,13 @@ amendments:
       The first G1 run found postseason totals ~3 points below every model's prediction, the ridge floor
       included (conf tourneys -2.7, NCAA -3.2; regular season -0.4): a game-type effect, not a rating
       error. It is exactly what the planned context GLM (rest, game type, venue) addresses.
+  - date: 2026-11-11
+    what: >-
+      Refines the amendment above (still no threshold changed). The shipped engine is ratings + linear
+      calibration (margin = b*mu + c*home, total = a + b*mu; the core calibration step of plan W3, fit on
+      earlier seasons) + the context adjustment only if it passes G2. The context adjustment is now
+      totals-only; its margin part was dropped.
+    why: >-
+      Women's grid: the margin part of the context adjustment gave no margin gain and worsened NCAA margins
+      (-0.05 to -0.10 RMSE). The residual home-team bias (-0.34) traced to ridge ratings being slightly too
+      extreme (actual = 0.966 x predicted), which is calibration, not context.

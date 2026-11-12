@@ -57,13 +57,16 @@ def add_context(g: pd.DataFrame, conferences: pd.DataFrame | None) -> pd.DataFra
         g["conf_game"] = (g["conf_a"] == g["conf_b"]) & g["phase"].eq("regular")
     else:
         g["conf_a"], g["conf_b"], g["conf_game"] = None, None, False
-    long = pd.concat([g[["season", "daynum", "team_a"]].rename(columns={"team_a": "team"}),
-                      g[["season", "daynum", "team_b"]].rename(columns={"team_b": "team"})], ignore_index=True)
-    long = long.sort_values(["season", "team", "daynum"])
+    # Keyed by (game, side), not (team, day): Kaggle has the odd team with two games on one day
+    # (e.g. M 2026 DayNum 131, team 1361); the second of those gets 0 days of rest.
+    long = pd.concat([g[["game_id", "season", "daynum", "team_a"]].rename(columns={"team_a": "team"}).assign(side="a"),
+                      g[["game_id", "season", "daynum", "team_b"]].rename(columns={"team_b": "team"}).assign(side="b")],
+                     ignore_index=True)
+    long = long.sort_values(["season", "team", "daynum", "game_id"])
     long["rest"] = long.groupby(["season", "team"])["daynum"].diff().fillna(7).clip(upper=7)
-    rest = long.set_index(["season", "daynum", "team"])["rest"]
-    g["rest_a"] = pd.Series(list(zip(g["season"], g["daynum"], g["team_a"]))).map(rest).to_numpy()
-    g["rest_b"] = pd.Series(list(zip(g["season"], g["daynum"], g["team_b"]))).map(rest).to_numpy()
+    rest = long.set_index(["game_id", "side"])["rest"]
+    g["rest_a"] = pd.Series(list(zip(g["game_id"], ["a"] * len(g)))).map(rest).to_numpy()
+    g["rest_b"] = pd.Series(list(zip(g["game_id"], ["b"] * len(g)))).map(rest).to_numpy()
     return g
 
 

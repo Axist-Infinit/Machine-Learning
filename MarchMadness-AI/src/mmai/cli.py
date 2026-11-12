@@ -224,8 +224,8 @@ def cmd_backtest(args: argparse.Namespace) -> int:
     from mmai.eval import PREREG_PATH
     from mmai.eval.walkforward import (
         assemble,
+        choose_shipped,
         gate_g1,
-        gate_g2,
         per_season,
         score,
         time_travel_check,
@@ -257,15 +257,16 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         lines = attach_lines(games[games["season"] >= 2017], lt, resolver, g) if len(lt) else None
         df = assemble(games, cfg, massey=kd.massey() if g == "M" else None, seeds=kd.seeds(g), lines=lines)
         test, _maps = walk_forward(df, seasons)
+        test, g2, shipped = choose_shipped(test, prereg)
         tt = time_travel_check(games, cfg, season=seasons[-1], cut_day=100)
-        gates = gate_g1(test, prereg, tt) + gate_g2(test, prereg)
+        gates = gate_g1(test, prereg, tt) + g2
         pooled, ps = score(test), per_season(test)
         tag = args.tag or f"{cfg.recency}"
-        md = _render_backtest(g, cfg, gates, pooled, ps, seasons)
+        md = _render_backtest(g, cfg, gates, pooled, ps, seasons).replace("## Pooled metrics", f"Shipped variant: **{shipped}**\n\n## Pooled metrics")
         (report_dir / f"backtest_{g}_{tag}.md").write_text(md)
         pooled.to_csv(report_dir / f"backtest_{g}_{tag}_pooled.csv", index=False)
         write_parquet(test, paths.store / "backtest" / f"{g}_{tag}.parquet")
-        print(f"\n=== {g}  ({len(test)} test games; report workspace/reports/backtest_{g}_{tag}.md)")
+        print(f"\n=== {g}  ({len(test)} test games; shipped = {shipped}; report workspace/reports/backtest_{g}_{tag}.md)")
         for x in gates:
             res = "n/a " if x["passed"] is None else ("PASS" if x["passed"] else "FAIL")
             print(f"  [{res}] {x['check']}: {x['value']}  (need {x['threshold']})")

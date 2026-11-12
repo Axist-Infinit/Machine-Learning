@@ -1,10 +1,19 @@
-"""Walk-forward backtest (plan W5) and gate G1.
+"""Walk-forward backtest (plan W5) and gates G1/G2.
 
-The ratings predictions are as-of by construction. The only things fit across seasons, always
-on seasons strictly before the test season, are scalar mappings: the margin sigma, the
-overtime adjustment, and the point scales of the Elo / Massey / seed baselines.
+Ratings predictions are as-of by construction. Everything else is fit on seasons strictly
+before the test season, in three layers:
 
-Orientation: team A is the home team when there is one, else the lower TeamID (see data/games.py).
+1. **plain**: ratings + overtime expectation (P(OT) from the margin density near 0).
+2. **calibrated** (core step, plan W3): linear recalibration on earlier seasons' late-season
+   games: ``margin = b*mu + c*home`` and ``total = a + b*mu``. This fixes ridge ratings being
+   slightly too extreme (slope < 1) and a home-court bias.
+3. **context**: a totals-only game-type adjustment on calibrated residuals (conference
+   tournament, NCAA, neutral regular season, conference game, back-to-backs). It is an *added
+   component* and ships only if it passes G2.
+
+``eng_*`` columns are the shipped variant: context if it passes G2, else calibrated.
+Baselines get their own scalar mappings (Elo / Massey / seed scales) on the same terms.
+Orientation: team A is the home team when there is one, else the lower TeamID (data/games.py).
 """
 
 from __future__ import annotations
@@ -22,28 +31,7 @@ FLOOR_CONFIG = RatingsConfig(target="points", carryover=0.0, prior_games=0.0, ri
 BASE_COLUMNS = ["game_id", "season", "daynum", "date", "phase", "neutral", "team_a", "team_b", "venue_a",
                 "score_a", "score_b", "margin_a", "total", "numot"]
 CONTEXT_COLUMNS = ["conf_game", "rest_a", "rest_b"]
-
-
-def context_features(d: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
-    """Design matrices for the context adjustment (plan W3 "context GLM"): totals and margins.
-    Everything here is known before tip-off from the schedule alone."""
-    ct = d["phase"].eq("conf_tourney").to_numpy(float)
-    nc = d["phase"].eq("ncaa").to_numpy(float)
-    regular = d["phase"].eq("regular").to_numpy(float)
-    neutral = d["neutral"].to_numpy(float)
-    conf = d["conf_game"].fillna(False).to_numpy(float) if "conf_game" in d else np.zeros(len(d))
-    v = d["venue_a"].to_numpy(float)
-    ra = d["rest_a"].fillna(7).to_numpy(float) if "rest_a" in d else np.full(len(d), 7.0)
-    rb = d["rest_b"].fillna(7).to_numpy(float) if "rest_b" in d else np.full(len(d), 7.0)
-    b2b_a, b2b_b = (ra <= 1).astype(float), (rb <= 1).astype(float)
-    x_total = np.column_stack([ct, nc, neutral * regular, conf, b2b_a + b2b_b])
-    x_margin = np.column_stack([v * conf, v * (1 - conf) * regular, v * (1 - regular),
-                                np.clip(ra, 0, 4) - np.clip(rb, 0, 4), b2b_a - b2b_b])
-    return x_total, x_margin
-
-
-def _ridge(x: np.ndarray, y: np.ndarray, alpha: float = 10.0) -> np.ndarray:
-    return np.linalg.solve(x.T @ x + alpha * np.eye(x.shape[1]), x.T @ y)
+CONTEXT_TOTAL_NAMES = ["conf_tourney", "ncaa", "neutral_regular", "conf_game", "back_to_backs"]
 
 
 def after_jan15(df: pd.DataFrame) -> pd.Series:
@@ -60,7 +48,9 @@ EVAL_SETS = {
 # model -> (margin column, total column, win-probability column, sigma column)
 MODELS = {
     "engine": ("eng_margin", "eng_total", "eng_p", "eng_sigma"),
-    "engine_plain": ("eng_margin_plain", "eng_total_plain", "eng_p_plain", "eng_sigma_plain"),
+    "engine_ctx": ("ctx_margin", "ctx_total", "ctx_p", "ctx_sigma"),
+    "engine_cal": ("cal_margin", "cal_total", "cal_p", "cal_sigma"),
+    "engine_plain": ("plain_margin", "plain_total", "plain_p", "plain_sigma"),
     "ridge_floor": ("floor_margin", "floor_total", "floor_p", None),
     "raw_net": ("raw_margin", "raw_total", None, None),
     "elo": ("elo_margin", None, "elo_p", None),
@@ -70,12 +60,35 @@ MODELS = {
 }
 
 
+def context_total_features(d: pd.DataFrame) -> np.ndarray:
+    """Totals context, known before tip-off from the schedule alone."""
+    regular = d["phase"].eq("regular").to_numpy(float)
+    conf = d["conf_game"].fillna(False).to_numpy(float) if "conf_game" in d else np.zeros(len(d))
+    ra = d["rest_a"].fillna(7).to_numpy(float) if "rest_a" in d else np.full(len(d), 7.0)
+    rb = d["rest_b"].fillna(7).to_numpy(float) if "rest_b" in d else np.full(len(d), 7.0)
+    return np.column_stack([
+        d["phase"].eq("conf_tourney").to_numpy(float),
+        d["phase"].eq("ncaa").to_numpy(float),
+        d["neutral"].to_numpy(float) * regular,
+        conf,
+        (ra <= 1).astype(float) + (rb <= 1).astype(float),
+    ])
+
+
+def _ridge(x: np.ndarray, y: np.ndarray, alpha: float = 10.0) -> np.ndarray:
+    return np.linalg.solve(x.T @ x + alpha * np.eye(x.shape[1]), x.T @ y)
+
+
+def _ols(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    return np.linalg.lstsq(x, y, rcond=None)[0]
+
+
 def assemble(games: pd.DataFrame, cfg: RatingsConfig, *, massey: pd.DataFrame | None = None,
              seeds: pd.DataFrame | None = None, lines: pd.DataFrame | None = None) -> pd.DataFrame:
     """One row per game with every model's raw (pre-mapping) prediction."""
     df = games[BASE_COLUMNS + [c for c in CONTEXT_COLUMNS if c in games]].copy()
     eng = run_ratings(games, cfg)[["game_id", "pred_margin_a", "pred_total_reg"]]
-    df = df.merge(eng.rename(columns={"pred_margin_a": "eng_margin", "pred_total_reg": "eng_total_reg"}),
+    df = df.merge(eng.rename(columns={"pred_margin_a": "eng_margin_raw", "pred_total_reg": "eng_total_reg"}),
                   on="game_id", how="left")
     floor = run_ratings(games, FLOOR_CONFIG)[["game_id", "pred_margin_a", "pred_total_reg"]]
     df = df.merge(floor.rename(columns={"pred_margin_a": "floor_margin", "pred_total_reg": "floor_total"}),
@@ -98,70 +111,65 @@ def assemble(games: pd.DataFrame, cfg: RatingsConfig, *, massey: pd.DataFrame | 
 
 
 def _ot_mult(margin, total_reg, sigma, c_ot, m_ot):
-    p_ot = np.clip(c_ot * norm.pdf(np.asarray(margin) / sigma) / sigma, 0.0, 0.5)
-    return np.asarray(total_reg) * (1.0 + p_ot * m_ot / 8.0)
-
-
-def _ols(x: np.ndarray, y: np.ndarray) -> np.ndarray:
-    return np.linalg.lstsq(x, y, rcond=None)[0]
+    p_ot = np.clip(c_ot * norm.pdf(np.asarray(margin, float) / sigma) / sigma, 0.0, 0.5)
+    return np.asarray(total_reg, float) * (1.0 + p_ot * m_ot / 8.0)
 
 
 def fit_mappings(train: pd.DataFrame) -> dict:
-    t = train[after_jan15(train) & train["eng_margin"].notna()]
+    """Scalar mappings from earlier seasons' late-season (after Jan 15) games."""
+    late = train[after_jan15(train) & train["eng_margin_raw"].notna()]
+    mu, y, v = late["eng_margin_raw"].to_numpy(float), late["margin_a"].to_numpy(float), late["venue_a"].to_numpy(float)
     mp: dict = {}
-    sigma = float((t["margin_a"] - t["eng_margin"]).std())
-    mp["sigma_plain"] = sigma
-    dens = norm.pdf(t["eng_margin"] / sigma) / sigma
-    ot = t["numot"] > 0
-    mp["c_ot"] = float(ot.mean() / dens.mean())
-    mp["m_ot"] = float(t.loc[ot, "numot"].mean()) if ot.any() else 1.0
-    # context adjustment: ridge on the as-of residuals of all earlier-season games
-    tr = train[train["eng_margin"].notna()]
-    x_total, x_margin = context_features(tr)
-    total_plain = _ot_mult(tr["eng_margin"], tr["eng_total_reg"], sigma, mp["c_ot"], mp["m_ot"])
-    mp["ctx_total"] = _ridge(x_total, (tr["total"] - total_plain).to_numpy(float))
-    mp["ctx_margin"] = _ridge(x_margin, (tr["margin_a"] - tr["eng_margin"]).to_numpy(float))
-    adj = tr["eng_margin"].to_numpy(float) + x_margin @ mp["ctx_margin"]
-    late = after_jan15(tr).to_numpy()
-    mp["sigma"] = float(np.std(tr["margin_a"].to_numpy(float)[late] - adj[late], ddof=1))
-    mp["floor_sigma"] = float((t["margin_a"] - t["floor_margin"]).std())
-    e = t.dropna(subset=["elo_diff_a"])
-    mp["elo_scale"] = float(_ols(e[["elo_diff_a"]].to_numpy(), e["margin_a"].to_numpy())[0])
+    s0 = float(np.std(y - mu, ddof=1))
+    mp["sigma_plain"] = s0
+    ot = late["numot"].to_numpy() > 0
+    mp["c_ot"] = float(ot.mean() / (norm.pdf(mu / s0) / s0).mean())
+    mp["m_ot"] = float(late.loc[ot, "numot"].mean()) if ot.any() else 1.0
+    plain_total = _ot_mult(mu, late["eng_total_reg"], s0, mp["c_ot"], mp["m_ot"])
+    mp["cal_margin"] = _ols(np.column_stack([mu, v]), y)
+    cal_margin = np.column_stack([mu, v]) @ mp["cal_margin"]
+    mp["sigma_cal"] = float(np.std(y - cal_margin, ddof=1))
+    mp["cal_total"] = _ols(np.column_stack([np.ones(len(late)), plain_total]), late["total"].to_numpy(float))
+    cal_total = np.column_stack([np.ones(len(late)), plain_total]) @ mp["cal_total"]
+    mp["ctx_total"] = _ridge(context_total_features(late), late["total"].to_numpy(float) - cal_total)
+
+    mp["floor_sigma"] = float((late["margin_a"] - late["floor_margin"]).std())
+    e = late.dropna(subset=["elo_diff_a"])
+    mp["elo_scale"] = float(_ols(e[["elo_diff_a"]].to_numpy(float), e["margin_a"].to_numpy(float))[0])
     mp["elo_sigma"] = float((e["margin_a"] - mp["elo_scale"] * e["elo_diff_a"]).std())
-    if "massey_diff_a" in t:
-        mm = t.dropna(subset=["massey_diff_a"])
+    if "massey_diff_a" in late:
+        mm = late.dropna(subset=["massey_diff_a"])
         if len(mm) > 100:
-            b = _ols(mm[["massey_diff_a", "venue_a"]].to_numpy(float), mm["margin_a"].to_numpy(float))
+            xm = mm[["massey_diff_a", "venue_a"]].to_numpy(float)
+            b = _ols(xm, mm["margin_a"].to_numpy(float))
             mp["massey_b"], mp["massey_h"] = float(b[0]), float(b[1])
-            mp["massey_sigma"] = float((mm["margin_a"] - mm[["massey_diff_a", "venue_a"]].to_numpy(float) @ b).std())
+            mp["massey_sigma"] = float((mm["margin_a"] - xm @ b).std())
     if "seed_diff_a" in train:
         sd = train.dropna(subset=["seed_diff_a"])
         if len(sd) > 50:
-            x, y = sd["seed_diff_a"].to_numpy(float), sd["margin_a"].to_numpy(float)
-            mp["seed_a"] = float(_ols(x[:, None], y)[0])
-            won = (y > 0).astype(float)
-
-            def nll(c):
-                return M.log_loss(1 / (1 + np.exp(-c * x)), won)
-
-            mp["seed_c"] = float(minimize_scalar(nll, bounds=(0.0, 2.0), method="bounded").x)
+            x, ys = sd["seed_diff_a"].to_numpy(float), sd["margin_a"].to_numpy(float)
+            mp["seed_a"] = float(_ols(x[:, None], ys)[0])
+            won = (ys > 0).astype(float)
+            mp["seed_c"] = float(minimize_scalar(lambda c: M.log_loss(1 / (1 + np.exp(-c * x)), won),
+                                                 bounds=(0.0, 2.0), method="bounded").x)
     return mp
 
 
 def apply_mappings(test: pd.DataFrame, mp: dict) -> pd.DataFrame:
     d = test.copy()
-    s0, s = mp["sigma_plain"], mp["sigma"]
-    # plain ratings engine (+ overtime expectation)
-    d["eng_margin_plain"] = d["eng_margin"]
-    d["eng_sigma_plain"] = s0
-    d["eng_total_plain"] = _ot_mult(d["eng_margin_plain"], d["eng_total_reg"], s0, mp["c_ot"], mp["m_ot"])
-    d["eng_p_plain"] = norm.cdf(d["eng_margin_plain"] / s0)
-    # shipped engine = ratings + context adjustment (fit on earlier seasons only)
-    x_total, x_margin = context_features(d)
-    d["eng_margin"] = d["eng_margin_plain"] + x_margin @ mp["ctx_margin"]
-    d["eng_total"] = d["eng_total_plain"] + x_total @ mp["ctx_total"]
-    d["eng_sigma"] = s
-    d["eng_p"] = norm.cdf(d["eng_margin"] / s)
+    s0, s1 = mp["sigma_plain"], mp["sigma_cal"]
+    v = d["venue_a"].to_numpy(float)
+    d["plain_margin"] = d["eng_margin_raw"]
+    d["plain_sigma"] = s0
+    d["plain_total"] = _ot_mult(d["plain_margin"], d["eng_total_reg"], s0, mp["c_ot"], mp["m_ot"])
+    d["plain_p"] = norm.cdf(d["plain_margin"] / s0)
+    d["cal_margin"] = np.column_stack([d["plain_margin"].to_numpy(float), v]) @ mp["cal_margin"]
+    d["cal_sigma"] = s1
+    d["cal_total"] = np.column_stack([np.ones(len(d)), d["plain_total"].to_numpy(float)]) @ mp["cal_total"]
+    d["cal_p"] = norm.cdf(d["cal_margin"] / s1)
+    d["ctx_margin"], d["ctx_sigma"], d["ctx_p"] = d["cal_margin"], s1, d["cal_p"]
+    d["ctx_total"] = d["cal_total"] + context_total_features(d) @ mp["ctx_total"]
+
     d["floor_p"] = norm.cdf(d["floor_margin"] / mp["floor_sigma"])
     d["raw_total"] = _ot_mult(d["raw_margin"], d["raw_total_reg"], s0, mp["c_ot"], mp["m_ot"])
     d["elo_margin"] = mp["elo_scale"] * d["elo_diff_a"]
@@ -187,6 +195,16 @@ def walk_forward(df: pd.DataFrame, seasons: list[int]) -> tuple[pd.DataFrame, di
         maps[s] = fit_mappings(train)
         parts.append(apply_mappings(test, maps[s]))
     return pd.concat(parts, ignore_index=True), maps
+
+
+def choose_shipped(test: pd.DataFrame, prereg: dict) -> tuple[pd.DataFrame, list[dict], str]:
+    """Run G2 on the context layer; the shipped ``eng_*`` columns are context if it passes, else calibrated."""
+    g2 = gate_g2(test, prereg, new="engine_ctx", old="engine_cal", component="context adjustment (totals)")
+    src = "ctx" if g2[-1]["passed"] else "cal"
+    out = test.copy()
+    for k in ("margin", "total", "p", "sigma"):
+        out[f"eng_{k}"] = out[f"{src}_{k}"]
+    return out, g2, f"engine_{src}"
 
 
 def score(df: pd.DataFrame) -> pd.DataFrame:
@@ -219,11 +237,12 @@ def score(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def per_season(df: pd.DataFrame, set_name: str = "after_jan15") -> pd.DataFrame:
-    d = df[EVAL_SETS[set_name](df) & df["eng_margin"].notna()]
-    em, et = d["margin_a"] - d["eng_margin"], d["total"] - d["eng_total"]
+def per_season(df: pd.DataFrame, set_name: str = "after_jan15", model: str = "engine") -> pd.DataFrame:
+    mcol, tcol, pcol, _ = MODELS[model]
+    d = df[EVAL_SETS[set_name](df) & df[mcol].notna()]
+    em, et = d["margin_a"] - d[mcol], d["total"] - d[tcol]
     parts = pd.DataFrame({"season": d["season"], "em": em, "em2": em**2, "et": et, "et2": et**2,
-                          "br": (d["eng_p"] - (d["margin_a"] > 0).astype(float)) ** 2})
+                          "br": (d[pcol] - (d["margin_a"] > 0).astype(float)) ** 2})
     agg = parts.groupby("season").agg(n=("em", "size"), margin_rmse=("em2", "mean"), margin_bias=("em", "mean"),
                                       total_rmse=("et2", "mean"), total_bias=("et", "mean"), brier=("br", "mean"))
     agg["margin_rmse"] = np.sqrt(agg["margin_rmse"])
@@ -247,68 +266,67 @@ def time_travel_check(games: pd.DataFrame, cfg: RatingsConfig, season: int, cut_
 
 
 def gate_g1(test: pd.DataFrame, prereg: dict, time_travel_max_diff: float) -> list[dict]:
+    """RMSE comparisons use the plain ratings (context/calibration can't flatter them); bias and
+    coverage checks use the shipped ``eng_*`` columns (see prereg amendments)."""
     g = prereg["gates"]["G1_ratings"]
     res = [{"check": "time-travel test: identical predictions", "value": time_travel_max_diff,
             "threshold": "== 0 (< 1e-9)", "passed": bool(time_travel_max_diff < 1e-9)}]
-    sel = after_jan15(test) & test["eng_margin"].notna()
-
-    def rmse_gap(col, need):  # plain ratings vs the baseline: context must not flatter the ratings gate
-        m = sel & test[col].notna()
-        d, lo, hi = M.paired_bootstrap(M.rmse, (test.loc[m, "margin_a"] - test.loc[m, col]).to_numpy(),
-                                       (test.loc[m, "margin_a"] - test.loc[m, "eng_margin_plain"]).to_numpy(), n=500)
-        return d, lo, hi, int(m.sum())
+    sel = after_jan15(test) & test["plain_margin"].notna()
 
     for col, key, label in (("raw_margin", "margin_rmse_beats_raw_net_rating_by", "raw net rating"),
                             ("elo_margin", "margin_rmse_beats_elo_by", "Elo")):
-        d, lo, hi, n = rmse_gap(col, g[key])
-        res.append({"check": f"margin RMSE improvement over {label} (after Jan 15, n={n})",
+        m = sel & test[col].notna()
+        d, lo, hi = M.paired_bootstrap(M.rmse, (test.loc[m, "margin_a"] - test.loc[m, col]).to_numpy(),
+                                       (test.loc[m, "margin_a"] - test.loc[m, "plain_margin"]).to_numpy(), n=500)
+        res.append({"check": f"plain ratings: margin RMSE improvement over {label} (after Jan 15, n={int(m.sum())})",
                     "value": f"{d:.3f} [{lo:.3f}, {hi:.3f}]", "threshold": f">= {g[key]}", "passed": bool(d >= g[key])})
     if "line_margin" in test and (sel & test["line_margin"].notna()).sum() >= 200:
         m = sel & test["line_margin"].notna()
-        gap = (M.rmse(test.loc[m, "margin_a"] - test.loc[m, "eng_margin_plain"])
+        gap = (M.rmse(test.loc[m, "margin_a"] - test.loc[m, "plain_margin"])
                - M.rmse(test.loc[m, "margin_a"] - test.loc[m, "line_margin"]))
-        res.append({"check": f"margin RMSE gap to closing line (n={int(m.sum())})", "value": round(gap, 3),
-                    "threshold": f"<= {g['margin_rmse_within_closing_line']}",
+        res.append({"check": f"plain ratings: margin RMSE gap to closing line (after Jan 15, n={int(m.sum())})",
+                    "value": round(gap, 3), "threshold": f"<= {g['margin_rmse_within_closing_line']}",
                     "passed": bool(gap <= g["margin_rmse_within_closing_line"])})
     else:
-        res.append({"check": "margin RMSE gap to closing line", "value": "n/a", "threshold": "needs lines",
-                    "passed": None})
+        res.append({"check": "plain ratings: margin RMSE gap to closing line", "value": "n/a",
+                    "threshold": "needs lines", "passed": None})
     ps = per_season(test)
-    res.append({"check": "max per-season |margin bias| (after Jan 15)", "value": round(ps["margin_bias"].abs().max(), 3),
-                "threshold": f"< {g['per_season_abs_margin_bias_max']}",
+    res.append({"check": "shipped: max per-season |margin bias| (after Jan 15)",
+                "value": round(ps["margin_bias"].abs().max(), 3), "threshold": f"< {g['per_season_abs_margin_bias_max']}",
                 "passed": bool(ps["margin_bias"].abs().max() < g["per_season_abs_margin_bias_max"])})
-    res.append({"check": "max per-season |total bias| (after Jan 15)", "value": round(ps["total_bias"].abs().max(), 3),
-                "threshold": f"< {g['per_season_abs_total_bias_max']}",
+    res.append({"check": "shipped: max per-season |total bias| (after Jan 15)",
+                "value": round(ps["total_bias"].abs().max(), 3), "threshold": f"< {g['per_season_abs_total_bias_max']}",
                 "passed": bool(ps["total_bias"].abs().max() < g["per_season_abs_total_bias_max"])})
     nc = test["phase"].eq("ncaa") & test["eng_total"].notna()
     if nc.any():
         tb = M.bias(test.loc[nc, "total"] - test.loc[nc, "eng_total"])
-        res.append({"check": f"pooled NCAA tournament |total bias| (n={int(nc.sum())})", "value": round(abs(tb), 3),
-                    "threshold": f"< {g['pooled_tourney_abs_total_bias_max']}",
+        res.append({"check": f"shipped: pooled NCAA tournament |total bias| (n={int(nc.sum())})",
+                    "value": round(abs(tb), 3), "threshold": f"< {g['pooled_tourney_abs_total_bias_max']}",
                     "passed": bool(abs(tb) < g["pooled_tourney_abs_total_bias_max"])})
     else:
-        res.append({"check": "pooled NCAA tournament |total bias|", "value": "n/a", "threshold": "needs NCAA games",
-                    "passed": None})
+        res.append({"check": "shipped: pooled NCAA tournament |total bias|", "value": "n/a",
+                    "threshold": "needs NCAA games", "passed": None})
     tol = g["interval_coverage_tolerance_pp"] / 100.0
+    s = after_jan15(test) & test["eng_margin"].notna()
     for level in (0.5, 0.8):
-        c = M.coverage(test.loc[sel, "margin_a"], test.loc[sel, "eng_margin"], test.loc[sel, "eng_sigma"], level)
-        res.append({"check": f"{int(level * 100)}% margin interval coverage", "value": round(c, 3),
+        c = M.coverage(test.loc[s, "margin_a"], test.loc[s, "eng_margin"], test.loc[s, "eng_sigma"], level)
+        res.append({"check": f"shipped: {int(level * 100)}% margin interval coverage", "value": round(c, 3),
                     "threshold": f"{level:.2f} ± {tol:.2f}", "passed": bool(abs(c - level) <= tol)})
     return res
 
 
-def gate_g2(test: pd.DataFrame, prereg: dict, *, new: str = "engine", old: str = "engine_plain",
-            component: str = "context adjustment") -> list[dict]:
-    """G2 for an added component: CI-significant improvement in margin or total RMSE (or Brier),
-    without hurting pooled NCAA-tournament metrics by more than 1 SE."""
+def gate_g2(test: pd.DataFrame, prereg: dict, *, new: str, old: str, component: str) -> list[dict]:
+    """G2 for an added component: CI-significant improvement in margin or total RMSE, without
+    hurting pooled NCAA-tournament metrics by more than 1 SE. Unchanged outputs are skipped."""
     g = prereg["gates"]["G2_added_component"]
     (nm, nt, _, _), (om, ot_, _, _) = MODELS[new], MODELS[old]
     sel = after_jan15(test) & test[nm].notna() & test[om].notna()
     nc = test["phase"].eq("ncaa") & test[nm].notna() & test[om].notna()
-    res = []
-    improved = False
-    for label, y, a_col, b_col, need in (("margin RMSE", "margin_a", om, nm, g["min_improvement"]["rmse"]),
-                                         ("total RMSE", "total", ot_, nt, g["min_improvement"]["rmse"])):
+    res, improved = [], False
+    for label, y, a_col, b_col in (("margin RMSE", "margin_a", om, nm), ("total RMSE", "total", ot_, nt)):
+        if np.allclose(test.loc[sel, a_col], test.loc[sel, b_col]):
+            continue  # this component doesn't touch this output
+        need = g["min_improvement"]["rmse"]
         e_old = (test.loc[sel, y] - test.loc[sel, a_col]).to_numpy()
         e_new = (test.loc[sel, y] - test.loc[sel, b_col]).to_numpy()
         d, lo, hi = M.paired_bootstrap(M.rmse, e_old, e_new, n=500)
@@ -321,10 +339,9 @@ def gate_g2(test: pd.DataFrame, prereg: dict, *, new: str = "engine", old: str =
             e_new_t = (test.loc[nc, y] - test.loc[nc, b_col]).to_numpy()
             d_t, lo_t, hi_t = M.paired_bootstrap(M.rmse, e_old_t, e_new_t, n=500)
             se = (hi_t - lo_t) / (2 * 1.96)
-            ok_t = d_t >= -g["max_pooled_tourney_degradation_se"] * se
             res.append({"check": f"{component}: NCAA tournament {label} change (n={int(nc.sum())})",
                         "value": f"{d_t:.3f} [{lo_t:.3f}, {hi_t:.3f}]", "threshold": f">= -1 SE ({-se:.3f})",
-                        "passed": bool(ok_t)})
+                        "passed": bool(d_t >= -g["max_pooled_tourney_degradation_se"] * se)})
     res.append({"check": f"{component}: ships", "value": "", "threshold": "an improvement + no tourney harm",
                 "passed": bool(improved and all(r["passed"] for r in res if "NCAA" in r["check"]))})
     return res
