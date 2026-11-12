@@ -156,6 +156,37 @@ def cmd_crosswalk(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_lines(args: argparse.Namespace) -> int:
+    from mmai.ids.resolver import TeamResolver
+    from mmai.market.history import build_line_table, compare_to_reference
+
+    paths = get_paths()
+    resolver = TeamResolver.load(crosswalk_path(paths), paths.config / "team_aliases.csv")
+    for g in args.gender:
+        games = read_parquets(espn_store(paths, "games", g))
+        odds = read_parquets(espn_store(paths, "odds", g))
+        if games.empty or odds.empty:
+            print(f"{g}: need ESPN games and odds in the store (`mmai ingest-espn --odds`)")
+            continue
+        table = build_line_table(games, odds)
+        table = table[table["event_id"].isin(set(odds["event_id"].astype(str)))]  # games whose odds were fetched
+        for season, part in table.groupby("season"):
+            write_parquet(part, paths.store / "lines" / f"gender={g}" / f"season={int(season)}.parquet")
+        cov = table.groupby("season").agg(
+            games=("event_id", "size"),
+            with_line=("spread_home", lambda s: int(s.notna().sum())),
+            structured_close=("line_kind", lambda s: int((s == "close").sum())),
+            consensus=("line_kind", lambda s: int((s == "consensus_final").sum())),
+            sign_conflicts=("spread_sign_conflict", lambda s: int(s.fillna(False).astype(bool).sum())),
+        )
+        print(f"{g} line coverage (games whose odds were fetched):\n{cov.to_string()}")
+        ref = paths.workspace / "outputs" / "odds_history" / "2025_tournament" / "closing_consensus.csv"
+        if g == "M" and ref.exists() and (table["season"] == 2025).any():
+            rep = compare_to_reference(table[table["season"] == 2025], pd.read_csv(ref), resolver)
+            print(f"M 2025 check vs cached Odds API closing consensus: {rep}")
+    return 0
+
+
 def cmd_log_odds(args: argparse.Namespace) -> int:
     paths = get_paths()
     api = OddsAPI(CachedJSONClient(paths.raw / "odds_api", min_interval_s=1.0),
@@ -198,6 +229,10 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("crosswalk", help="learn ESPN/Odds API -> Kaggle team IDs from games")
     s.add_argument("--seasons", nargs="*", type=int, help="seasons to learn from (default: all overlapping)")
     s.set_defaults(func=cmd_crosswalk)
+
+    s = sub.add_parser("lines", help="build per-game historical lines from ESPN odds; coverage + 2025 check")
+    s.add_argument("--gender", nargs="+", default=["M"], choices=["M", "W"])
+    s.set_defaults(func=cmd_lines)
 
     s = sub.add_parser("log-odds", help="snapshot current pre-game lines (needs ODDS_API_KEY)")
     s.add_argument("--gender", nargs="+", default=["M", "W"], choices=["M", "W"])

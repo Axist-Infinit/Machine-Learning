@@ -62,7 +62,7 @@ Tests use synthetic fixtures only, so no Kaggle data or API keys are needed.
 Cron doesn't read `~/.bashrc`, so load the key from a `chmod 600` file:
 
 ```
-0 10-23/2 * 11,12,1,2,3,4 * cd ~/machine-learning/MarchMadness-AI && ODDS_API_KEY=$(cat ~/.odds_api_key) ./mmai log-odds >> workspace/logs/odds.log 2>&1
+0 10-23/2 * 11,12,1,2,3,4 * cd ~/machine-learning/MarchMadness-AI && mkdir -p workspace/logs && ODDS_API_KEY=$(cat ~/.odds_api_key) ./mmai log-odds >> workspace/logs/odds.log 2>&1
 ```
 
-A WSL2 machine only runs cron while Windows is awake. ESPN's closing lines backstop any gaps, and `mmai doctor` reports how old the newest snapshot is.
+Cron uses the machine's local time zone (this one is on MST). A WSL2 machine only runs cron while Windows is awake. ESPN's closing lines backstop any gaps, and `mmai doctor` reports how old the newest snapshot is.
