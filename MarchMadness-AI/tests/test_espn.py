@@ -101,6 +101,20 @@ ODDS = {"items": [
 ]}
 
 
+def test_parse_odds_rejects_prices_in_line_fields():
+    # ESPN BET 2023: the close block carries the price where the line belongs
+    item = {
+        "provider": {"id": "58", "name": "ESPN BET"}, "details": "HOU -21.5", "spread": 21.5, "overUnder": 132.5,
+        "homeTeamOdds": {"moneyLine": 1000, "close": {"pointSpread": {"american": "-115"},
+                                                      "moneyLine": {"american": "+1000"}}},
+        "awayTeamOdds": {"moneyLine": -3000},
+        "close": {"over": {"american": "-115"}, "under": {"american": "-105"}, "total": {"american": "-115"}},
+    }
+    (row,) = parse_odds({"items": [item]}, "M", "401492757", "ECU", "HOU")
+    assert row["close_spread_home"] is None and row["close_total"] is None
+    assert (row["spread_home"], row["total"], row["close_ml_home"]) == (21.5, 132.5, 1000.0)
+
+
 def test_parse_odds_reads_open_close_and_final_lines():
     dk, cons = parse_odds(ODDS, "M", "401856478", "DUKE", "SIENA")
     assert (dk["spread_home"], dk["open_spread_home"], dk["close_spread_home"]) == (-28.5, -25.5, -28.5)

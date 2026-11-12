@@ -12,7 +12,8 @@ import pandas as pd
 
 from mmai.calendar import DAY_ZERO_OVERRIDES, day_zero, daynum, season_of
 from mmai.config import Paths
-from mmai.ids.resolver import TeamResolver
+from mmai.ids.crosswalk import unmapped_division_one
+from mmai.ids.resolver import TeamResolver, is_provisional
 from mmai.sources.kaggle import KaggleData
 from mmai.store import read_parquets
 
@@ -54,23 +55,17 @@ def run_doctor(paths: Paths, today: date | None = None) -> list[tuple[str, str, 
         stale = len(done) == 0 or (today - date.fromisoformat(str(last))).days > 2
         checks.append(("WARN" if stale else "OK", f"espn games [{g}]",
                        f"{len(done)} completed this season, latest {last}"))
-        # Division I teams this season = teams with >= 3 games against crosswalked teams.
         mapped = set(resolver.keys(g, "espn"))
-        counts: dict[str, int] = {}
-        for h, a in zip(done["home_id"].astype(str), done["away_id"].astype(str)):
-            if a in mapped:
-                counts[h] = counts.get(h, 0) + 1
-            if h in mapped:
-                counts[a] = counts.get(a, 0) + 1
-        names = dict(zip(done["home_id"].astype(str), done["home_name"])) | dict(
-            zip(done["away_id"].astype(str), done["away_name"]))
-        missing = sorted(t for t, n in counts.items() if n >= 3 and t not in mapped)
         if not mapped:
             checks.append(("FAIL", f"team ids [{g}]", "no crosswalk; run `mmai crosswalk`"))
-        else:
-            checks.append(("WARN" if missing else "OK", f"team ids [{g}]",
-                           f"{len(mapped)} ESPN teams mapped" + (
-                               f"; unmapped D1-looking teams: {[names.get(t, t) for t in missing][:8]}" if missing else "")))
+            continue
+        kaggle_last = int(kd.seasons(g)["Season"].max()) if kd else season - 1
+        gaps = unmapped_division_one(done, mapped, kaggle_last)
+        n_prov = sum(is_provisional(resolver.resolve(g, "espn", k)) for k in mapped)
+        detail = f"{len(mapped)} ESPN teams mapped ({n_prov} provisional)"
+        if len(gaps):
+            detail += f"; unmapped Division I teams (run `mmai crosswalk`): {list(gaps['espn_name'])[:8]}"
+        checks.append(("WARN" if len(gaps) else "OK", f"team ids [{g}]", detail))
 
     key = os.environ.get("ODDS_API_KEY")
     checks.append(("OK" if key else "WARN", "odds api key", "set" if key else "ODDS_API_KEY not set (logger can't run)"))

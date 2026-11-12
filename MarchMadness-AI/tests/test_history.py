@@ -34,6 +34,30 @@ def test_choose_lines_priority_and_sign_check():
     assert lines.loc["e3", "spread_home"] == -4.0 and bool(lines.loc["e3", "spread_sign_conflict"])
 
 
+def test_choose_lines_skips_live_and_opening_feeds_and_takes_book_medians():
+    odds = pd.DataFrame([
+        # e4: in-play and opening feeds never count; three books' finals -> their median
+        _odds_row("e4", "DraftKings - Live Odds", "200", spread=-15.0, details=-15.0, total=120.0,
+                  close_spread=-15.0, close_total=120.0),
+        _odds_row("e4", "Opening", "23", spread=-1.0, details=-1.0, total=150.0),
+        _odds_row("e4", "Westgate", "25", spread=-3.0, details=-3.0, total=141.0),
+        _odds_row("e4", "Unibet", "36", spread=-4.0, details=-4.0, total=142.0),
+        _odds_row("e4", "MGM", "47", spread=-6.0, details=-6.0, total=146.0),
+        # e5: structured closes from two books -> their median; finals ignored
+        _odds_row("e5", "ESPN BET", "58", spread=2.0, details=2.0, total=150.0, close_spread=2.5, close_total=151.0),
+        _odds_row("e5", "DraftKings", "40", spread=2.0, details=2.0, total=150.0, close_spread=1.5, close_total=152.0),
+    ])
+    odds.loc[odds["provider"].eq("Westgate"), "ml_home"] = -105.0
+    odds.loc[odds["provider"].eq("Unibet"), "ml_home"] = 105.0
+    odds.loc[odds["provider"].eq("MGM"), "ml_home"] = -110.0
+    lines = choose_lines(odds).set_index("event_id")
+    e4, e5 = lines.loc["e4"], lines.loc["e5"]
+    assert (e4["line_kind"], e4["spread_home"], e4["total"], e4["n_providers"]) == ("book_final", -4.0, 142.0, 3)
+    assert e4["provider"] == "median of 3 books"
+    assert e4["ml_home"] == -105.0  # medianed as decimal odds: 1.909, 1.952, 2.05 -> 1.952
+    assert (e5["line_kind"], e5["spread_home"], e5["total"]) == ("close", 2.0, 151.5)
+
+
 def _games():
     return pd.DataFrame([
         {"event_id": "e1", "season": 2025, "date_et": "2025-03-20", "start_utc": None, "neutral": True,

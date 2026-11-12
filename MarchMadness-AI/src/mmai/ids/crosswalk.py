@@ -104,6 +104,33 @@ def learn_espn_crosswalk(
     return xw, rep
 
 
+def unmapped_division_one(espn_games: pd.DataFrame, mapped: set[str], kaggle_last_season: int,
+                          min_mapped: int = 3) -> pd.DataFrame:
+    """ESPN teams that play in a Division I conference but have no Kaggle id.
+
+    ESPN's Division I scoreboard tags D1 teams with their conference and leaves the conference of
+    non-D1 opponents empty, so a D1 conference is one with ``min_mapped`` or more mapped teams in
+    that season. ``kind`` is ``new`` for a team never in a D1 conference during a season Kaggle
+    covers (new to Division I: give it a provisional id), else ``unmapped`` (the crosswalk failed:
+    add an alias after checking its games).
+    """
+    cols = ["season", "espn_id", "espn_name", "conf_id"]
+    long = pd.concat([espn_games[["season", f"{s}_id", f"{s}_name", f"{s}_conf_id"]].set_axis(cols, axis=1)
+                      for s in ("home", "away")], ignore_index=True).dropna(subset=["conf_id"])
+    long["espn_id"], long["conf_id"] = long["espn_id"].astype(str), long["conf_id"].astype(str)
+    long = long.drop_duplicates(["season", "espn_id", "conf_id"])
+    n_mapped = long[long["espn_id"].isin(mapped)].groupby(["season", "conf_id"])["espn_id"].nunique()
+    d1 = set(n_mapped[n_mapped >= min_mapped].index)
+    in_d1 = long[[k in d1 for k in zip(long["season"], long["conf_id"])]]
+    miss = in_d1[~in_d1["espn_id"].isin(mapped)]
+    if miss.empty:
+        return pd.DataFrame(columns=["espn_id", "espn_name", "first_d1_season", "last_season", "kind"])
+    out = miss.sort_values("season").groupby("espn_id").agg(
+        espn_name=("espn_name", "last"), first_d1_season=("season", "min"), last_season=("season", "max")).reset_index()
+    out["kind"] = np.where(out["first_d1_season"] > kaggle_last_season, "new", "unmapped")
+    return out
+
+
 # --- names ------------------------------------------------------------------------------------
 
 _NON_ALNUM = re.compile(r"[^a-z0-9 ]+")

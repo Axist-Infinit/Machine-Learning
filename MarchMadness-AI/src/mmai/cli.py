@@ -12,7 +12,13 @@ import pandas as pd
 
 from mmai.calendar import date_range, season_of
 from mmai.config import Paths, get_paths
-from mmai.ids.crosswalk import kaggle_results_with_dates, learn_espn_crosswalk, learn_name_crosswalk
+from mmai.ids.crosswalk import (
+    kaggle_results_with_dates,
+    learn_espn_crosswalk,
+    learn_name_crosswalk,
+    unmapped_division_one,
+)
+from mmai.ids.resolver import TeamResolver, provisional_id
 from mmai.sources.espn import ESPN, collect
 from mmai.sources.http import CachedJSONClient
 from mmai.sources.kaggle import KaggleData
@@ -122,13 +128,25 @@ def cmd_crosswalk(args: argparse.Namespace) -> int:
         print(f"{g} ESPN->Kaggle from seasons {seasons}: {rep.games} ESPN games, {rep.matched} matched, "
               f"{rep.ambiguous} ambiguous, {rep.unmatched} unmatched (non-D1 opponents) -> {rep.mapped} teams mapped; "
               f"{len(rep.low_confidence)} low-confidence, {len(rep.conflicts)} conflicts")
+        aliased = set(TeamResolver.load(None, paths.config / "team_aliases.csv").keys(g, "espn"))
         for row in rep.conflicts[:10]:
-            print(f"   conflict: {row}")
+            note = "covered by config/team_aliases.csv" if row["espn_id"] in aliased else "UNRESOLVED: add an alias"
+            print(f"   one-to-one conflict ({note}): {row}")
         espn_to_kaggle[g] = dict(zip(xw["espn_id"], xw["kaggle_id"]))
         team_names = dict(zip(kd.teams(g)["TeamID"], kd.teams(g)["TeamName"]))
         for r in xw.itertuples(index=False):
             out.append({"gender": g, "source": "espn", "key": r.espn_id, "kaggle_id": r.kaggle_id,
                         "votes": r.votes, "share": r.share, "label": f"{r.espn_name} = {team_names.get(r.kaggle_id)}"})
+        gaps = unmapped_division_one(games, set(xw["espn_id"]) | aliased, int(kres["Season"].max()))
+        for r in gaps.itertuples(index=False):
+            if r.kind == "new":
+                pid = provisional_id(r.espn_id)
+                out.append({"gender": g, "source": "espn", "key": r.espn_id, "kaggle_id": pid, "votes": 0,
+                            "share": None, "label": f"{r.espn_name} = provisional (new to D1 in {r.first_d1_season})"})
+                print(f"   new to Division I: {r.espn_name} (ESPN {r.espn_id}) -> provisional id {pid}")
+            else:
+                print(f"   UNMAPPED Division I team: {r.espn_name} (ESPN {r.espn_id}, D1 seasons "
+                      f"{r.first_d1_season}-{r.last_season}); check its games and add config/team_aliases.csv")
 
     events = load_odds_api_events(paths)
     for g, ev in events.groupby("gender"):
@@ -177,7 +195,7 @@ def cmd_lines(args: argparse.Namespace) -> int:
             with_line=("spread_home", lambda s: int(s.notna().sum())),
             structured_close=("line_kind", lambda s: int((s == "close").sum())),
             consensus=("line_kind", lambda s: int((s == "consensus_final").sum())),
-            sign_conflicts=("spread_sign_conflict", lambda s: int(s.fillna(False).astype(bool).sum())),
+            sign_conflicts=("spread_sign_conflict", lambda s: int(s.eq(True).sum())),
         )
         print(f"{g} line coverage (games whose odds were fetched):\n{cov.to_string()}")
         ref = paths.workspace / "outputs" / "odds_history" / "2025_tournament" / "closing_consensus.csv"

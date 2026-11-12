@@ -240,12 +240,29 @@ def parse_odds(odds: dict, gender: str, event_id: str, home_abbr: str | None = N
         }
         for phase in ("open", "close"):
             hp, ap, tp = home.get(phase) or {}, away.get(phase) or {}, it.get(phase) or {}
-            row[f"{phase}_spread_home"] = _num((hp.get("pointSpread") or {}).get("american"))
+            row[f"{phase}_spread_home"], row[f"{phase}_total"] = _phase_lines(hp, tp)
             row[f"{phase}_ml_home"] = _num((hp.get("moneyLine") or {}).get("american"))
             row[f"{phase}_ml_away"] = _num((ap.get("moneyLine") or {}).get("american"))
-            row[f"{phase}_total"] = _num((tp.get("total") or {}).get("american"))
         rows.append(row)
     return rows
+
+
+MAX_ABS_SPREAD = 75.0  # no college spread is this big, and American prices never fall inside (-100, +100)
+TOTAL_RANGE = (60.0, 300.0)
+
+
+def _phase_lines(home_phase: dict, total_phase: dict) -> tuple[float | None, float | None]:
+    """(home spread, total) from an ``open``/``close`` block; None where the field holds something
+    other than a line. ESPN BET's 2023 close blocks carry the price there (pointSpread "-115",
+    total "-115"), while the real line sits in ``current`` and the item's top-level fields."""
+    spread = _num((home_phase.get("pointSpread") or {}).get("american"))
+    total = _num((total_phase.get("total") or {}).get("american"))
+    prices = {_num((total_phase.get(k) or {}).get("american")) for k in ("over", "under")}
+    if spread is not None and abs(spread) > MAX_ABS_SPREAD:
+        spread = None
+    if total is not None and (not TOTAL_RANGE[0] <= total <= TOTAL_RANGE[1] or total in prices):
+        total = None
+    return spread, total
 
 
 # --- collection ------------------------------------------------------------------------------

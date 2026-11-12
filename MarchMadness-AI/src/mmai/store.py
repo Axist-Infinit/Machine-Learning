@@ -29,4 +29,11 @@ def read_parquets(root: str | os.PathLike, pattern: str = "**/*.parquet") -> pd.
     files = sorted(Path(root).glob(pattern))
     if not files:
         return pd.DataFrame()
-    return pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
+    frames = [pd.read_parquet(f) for f in files]
+    columns = list(dict.fromkeys(c for f in frames for c in f.columns))
+    # All-NA columns (e.g. open/close line fields before 2025) must not decide the result dtype
+    # (pandas deprecates that); drop them per file and restore the full column set afterwards.
+    trimmed = [f.dropna(axis=1, how="all") for f in frames if len(f)]
+    if not trimmed:
+        return pd.DataFrame(columns=columns)
+    return pd.concat(trimmed, ignore_index=True).reindex(columns=columns)

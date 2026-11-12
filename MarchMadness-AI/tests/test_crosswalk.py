@@ -4,7 +4,12 @@ from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 
-from mmai.ids.crosswalk import kaggle_results_with_dates, learn_espn_crosswalk, learn_name_crosswalk
+from mmai.ids.crosswalk import (
+    kaggle_results_with_dates,
+    learn_espn_crosswalk,
+    learn_name_crosswalk,
+    unmapped_division_one,
+)
 
 # Truth: ESPN id -> Kaggle id. Two "Miami"s on purpose: names must not matter.
 TRUTH = {"193": 1275, "2390": 1274, "150": 1181, "153": 1314, "2561": 1373, "45": 1203}
@@ -102,3 +107,19 @@ def test_odds_api_names_inherit_ids_through_tip_times():
     assert got["Miami Hurricanes"] == 1274 and got["Miami (OH) RedHawks"] == 1275
     assert got["GW Revolutionaries"] == 1203 and got["Siena Saints"] == 1373
     assert rep["matched"] == 3 and rep["unmatched"] == 1
+
+
+def test_unmapped_division_one_separates_new_teams_from_crosswalk_failures():
+    def game(season, home, away, home_conf="46", away_conf="46"):
+        return {"season": season, "home_id": home, "away_id": away, "home_name": f"T{home}", "away_name": f"T{away}",
+                "home_conf_id": home_conf, "away_conf_id": away_conf}
+    games = pd.DataFrame([
+        game(2026, "1", "2"), game(2026, "3", "5"),           # 5: in a D1 conference Kaggle covers, unmapped
+        game(2027, "1", "4"), game(2027, "2", "3"),           # 4: first D1 season after Kaggle's last -> new
+        game(2027, "1", "9", away_conf=None),                 # 9: non-D1 opponent (no conference)
+        game(2027, "7", "8", home_conf="99", away_conf="99"),  # conference with no mapped teams: not D1
+    ])
+    gaps = unmapped_division_one(games, {"1", "2", "3"}, kaggle_last_season=2026).set_index("espn_id")
+    assert set(gaps.index) == {"4", "5"}
+    assert gaps.loc["4", "kind"] == "new" and gaps.loc["5", "kind"] == "unmapped"
+    assert gaps.loc["5", "first_d1_season"] == 2026
